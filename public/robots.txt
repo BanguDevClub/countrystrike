@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://banguDevClub.github.io/countrystrike/sitemap.xml

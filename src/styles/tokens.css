@@ -1,0 +1,621 @@
+/* ── Base ──────────────────────────────────────────────────────────────── */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  min-width: 320px;
+  -webkit-text-size-adjust: 100%;
+  scroll-behavior: smooth;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  background-color: var(--bg);
+  background-image:
+    radial-gradient(1100px 620px at 10% -8%, var(--glow-a), transparent 65%),
+    radial-gradient(900px 560px at 92% 10%, var(--glow-b), transparent 62%),
+    linear-gradient(180deg, var(--bg) 0%, var(--bg-soft) 100%);
+  background-attachment: fixed;
+  color: var(--fg);
+  font-family: var(--font-body);
+  font-size: 15px;
+  line-height: 1.55;
+  font-feature-settings: 'cv02', 'cv03', 'cv04', 'cv11';
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+}
+
+#root {
+  min-height: 100vh;
+}
+
+h1,
+h2,
+h3,
+h4,
+p,
+figure {
+  margin: 0;
+}
+
+h1,
+h2,
+h3,
+h4 {
+  font-family: var(--font-display);
+  font-weight: 620;
+  letter-spacing: -0.02em;
+  line-height: 1.15;
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+  color: inherit;
+}
+
+button {
+  cursor: pointer;
+}
+
+a {
+  color: var(--accent);
+  text-decoration: none;
+}
+
+a:hover {
+  color: var(--accent-strong);
+}
+
+img,
+svg {
+  display: block;
+  max-width: 100%;
+}
+
+::selection {
+  background: var(--accent);
+  color: var(--accent-contrast);
+}
+
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--border-strong);
+  border-radius: 99px;
+  border: 3px solid var(--bg);
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--faint);
+}
+
+/* ── Theme: Midnight ───────────────────────────────────────────────────── */
+
+:root,
+:root[data-theme='dark'] {
+  color-scheme: dark;
+  --font-body: 'Inter Variable', 'Inter', ui-sans-serif, system-ui, sans-serif;
+  --font-display: 'Space Grotesk Variable', 'Space Grotesk', ui-sans-serif, system-ui, sans-serif;
+  --font-mono: ui-monospace, 'SFMono-Regular', 'Cascadia Code', monospace;
+  --bg: #0b0e15;
+  --bg-soft: #0e121b;
+  --surface: #141925;
+  --surface-2: #181e2d;
+  --surface-3: #202738;
+  --surface-4: #273046;
+  --border: #273044;
+  --border-strong: #394662;
+  --fg: #e9edf7;
+  --muted: #aab4cb;
+  --faint: #8b96ad;
+  --accent: #8ea7ff;
+  --accent-strong: #b5c5ff;
+  --accent-soft: rgba(142, 167, 255, 0.12);
+  --accent-faint: rgba(142, 167, 255, 0.06);
+  --accent-contrast: #0a0d14;
+  --accent-2: #64e3c0;
+  --accent-2-soft: rgba(100, 227, 192, 0.1);
+  --success: #67dfa1;
+  --success-soft: rgba(103, 223, 161, 0.12);
+  --warning: #f4c95d;
+  --warning-soft: rgba(244, 201, 93, 0.12);
+  --error: #ff8095;
+  --error-soft: rgba(255, 128, 149, 0.12);
+  --info: #7fc8ff;
+  --info-soft: rgba(127, 200, 255, 0.1);
+  --c1: #8ea7ff;
+  --c2: #64e3c0;
+  --c3: #f4c95d;
+  --c4: #ff9f76;
+  --c5: #cda8ff;
+  --c6: #7fc8ff;
+  --res-water: #7fc8ff;
+  --res-energy: #f4c95d;
+  --res-agriculture: #7adf9d;
+  --res-livestock: #ffb38a;
+  --res-oil: #a8b3cf;
+  --res-metal: #b7c4ff;
+  --res-rareEarth: #d0b0ff;
+  --res-uranium: #7be8ce;
+  --chart-grid: rgba(160, 180, 220, 0.11);
+  --map-ocean: #08111a;
+  --map-ocean-light: #0e1c2a;
+  --map-land: #17252d;
+  --map-border: #08111a;
+  --map-label: #f2f6ff;
+  --map-dot: rgba(150, 185, 225, 0.07);
+  --header-bg: rgba(11, 14, 21, 0.84);
+  --tooltip-bg: #1b2232;
+  --glow-a: rgba(142, 167, 255, 0.12);
+  --glow-b: rgba(100, 227, 192, 0.065);
+  --shadow-card: 0 24px 55px -38px rgba(0, 0, 0, 0.95);
+  --shadow-pop: 0 28px 70px -24px rgba(0, 0, 0, 0.72);
+  --radius-xl: 22px;
+  --radius-lg: 16px;
+  --radius-md: 12px;
+  --radius-sm: 9px;
+}
+
+/* ── Theme: Daylight ───────────────────────────────────────────────────── */
+
+:root[data-theme='light'] {
+  color-scheme: light;
+  --bg: #f3f5fa;
+  --bg-soft: #eef1f8;
+  --surface: #ffffff;
+  --surface-2: #f8f9fc;
+  --surface-3: #edeff6;
+  --surface-4: #e3e7f1;
+  --border: #dfe3ee;
+  --border-strong: #c6cddd;
+  --fg: #19202f;
+  --muted: #4f5a70;
+  --faint: #6b7488;
+  --accent: #3d5dfa;
+  --accent-strong: #2845d8;
+  --accent-soft: rgba(61, 93, 250, 0.09);
+  --accent-faint: rgba(61, 93, 250, 0.045);
+  --accent-contrast: #ffffff;
+  --accent-2: #0a7b68;
+  --accent-2-soft: rgba(14, 146, 120, 0.09);
+  --success: #11784a;
+  --success-soft: rgba(17, 120, 74, 0.1);
+  --warning: #a16207;
+  --warning-soft: rgba(161, 98, 7, 0.09);
+  --error: #c8324c;
+  --error-soft: rgba(200, 50, 76, 0.08);
+  --info: #0b669b;
+  --info-soft: rgba(11, 102, 155, 0.08);
+  --c1: #3d5dfa;
+  --c2: #0a7b68;
+  --c3: #a16207;
+  --c4: #b45309;
+  --c5: #7e22ce;
+  --c6: #0b669b;
+  --res-water: #0f7fb4;
+  --res-energy: #a16207;
+  --res-agriculture: #2f8a4c;
+  --res-livestock: #b45309;
+  --res-oil: #4b5563;
+  --res-metal: #4f5db3;
+  --res-rareEarth: #7b3fb5;
+  --res-uranium: #0f8f7f;
+  --chart-grid: rgba(35, 55, 95, 0.1);
+  --map-ocean: #d7e7f3;
+  --map-ocean-light: #eaf4fb;
+  --map-land: #c3d6c5;
+  --map-border: #f6fafc;
+  --map-label: #17303f;
+  --map-dot: rgba(35, 70, 100, 0.09);
+  --header-bg: rgba(243, 245, 250, 0.88);
+  --tooltip-bg: #ffffff;
+  --glow-a: rgba(61, 93, 250, 0.08);
+  --glow-b: rgba(14, 146, 120, 0.06);
+  --shadow-card: 0 20px 45px -34px rgba(31, 50, 90, 0.34);
+  --shadow-pop: 0 28px 70px -24px rgba(31, 50, 90, 0.32);
+}
+
+/* ── Theme: Catppuccin Latte ───────────────────────────────────────────── */
+
+:root[data-theme='latte'] {
+  color-scheme: light;
+  --bg: #e6e9ef;
+  --bg-soft: #eff1f5;
+  --surface: #ffffff;
+  --surface-2: #f4f5f9;
+  --surface-3: #e6e9ef;
+  --surface-4: #dce0e8;
+  --border: #d9dde7;
+  --border-strong: #bcc0cc;
+  --fg: #4c4f69;
+  --muted: #5b5f77;
+  --faint: #6c6f85;
+  --accent: #1e66f5;
+  --accent-strong: #1650c8;
+  --accent-soft: rgba(30, 102, 245, 0.09);
+  --accent-faint: rgba(30, 102, 245, 0.045);
+  --accent-contrast: #ffffff;
+  --accent-2: #0f766e;
+  --accent-2-soft: rgba(15, 118, 110, 0.09);
+  --success: #2f7d1f;
+  --success-soft: rgba(47, 125, 31, 0.1);
+  --warning: #a16207;
+  --warning-soft: rgba(161, 98, 7, 0.1);
+  --error: #d20f39;
+  --error-soft: rgba(210, 15, 57, 0.08);
+  --info: #087ea4;
+  --info-soft: rgba(8, 126, 164, 0.09);
+  --c1: #1e66f5;
+  --c2: #0f766e;
+  --c3: #a16207;
+  --c4: #c2410c;
+  --c5: #7c3aed;
+  --c6: #087ea4;
+  --res-water: #087ea4;
+  --res-energy: #a16207;
+  --res-agriculture: #2f7d1f;
+  --res-livestock: #c2410c;
+  --res-oil: #6c6f85;
+  --res-metal: #4f5bd5;
+  --res-rareEarth: #7c3aed;
+  --res-uranium: #0f766e;
+  --chart-grid: rgba(76, 79, 105, 0.11);
+  --map-ocean: #dce0e8;
+  --map-ocean-light: #eff1f5;
+  --map-land: #cbd7c9;
+  --map-border: #ffffff;
+  --map-label: #4c4f69;
+  --map-dot: rgba(76, 79, 105, 0.08);
+  --header-bg: rgba(230, 233, 239, 0.9);
+  --tooltip-bg: #ffffff;
+  --glow-a: rgba(30, 102, 245, 0.07);
+  --glow-b: rgba(23, 146, 153, 0.06);
+  --shadow-card: 0 20px 42px -35px rgba(76, 79, 105, 0.35);
+  --shadow-pop: 0 28px 70px -24px rgba(76, 79, 105, 0.32);
+}
+
+/* ── Theme: Catppuccin Frappé ──────────────────────────────────────────── */
+
+:root[data-theme='frappe'] {
+  color-scheme: dark;
+  --bg: #232634;
+  --bg-soft: #292c3c;
+  --surface: #303446;
+  --surface-2: #35394b;
+  --surface-3: #414559;
+  --surface-4: #51576d;
+  --border: #414559;
+  --border-strong: #51576d;
+  --fg: #c6d0f5;
+  --muted: #b5bddc;
+  --faint: #a5adce;
+  --accent: #8caaee;
+  --accent-strong: #a9c1f5;
+  --accent-soft: rgba(140, 170, 238, 0.13);
+  --accent-faint: rgba(140, 170, 238, 0.06);
+  --accent-contrast: #232634;
+  --accent-2: #81c8be;
+  --accent-2-soft: rgba(129, 200, 190, 0.12);
+  --success: #a6d189;
+  --success-soft: rgba(166, 209, 137, 0.12);
+  --warning: #e5c890;
+  --warning-soft: rgba(229, 200, 144, 0.12);
+  --error: #e78284;
+  --error-soft: rgba(231, 130, 132, 0.12);
+  --info: #85c1dc;
+  --info-soft: rgba(133, 193, 220, 0.1);
+  --c1: #8caaee;
+  --c2: #81c8be;
+  --c3: #e5c890;
+  --c4: #ef9f76;
+  --c5: #ca9ee6;
+  --c6: #85c1dc;
+  --res-water: #85c1dc;
+  --res-energy: #e5c890;
+  --res-agriculture: #a6d189;
+  --res-livestock: #ef9f76;
+  --res-oil: #838ba7;
+  --res-metal: #8caaee;
+  --res-rareEarth: #ca9ee6;
+  --res-uranium: #81c8be;
+  --chart-grid: rgba(198, 208, 245, 0.11);
+  --map-ocean: #1c1e28;
+  --map-ocean-light: #232634;
+  --map-land: #394d49;
+  --map-border: #232634;
+  --map-label: #c6d0f5;
+  --map-dot: rgba(198, 208, 245, 0.06);
+  --header-bg: rgba(35, 38, 52, 0.87);
+  --tooltip-bg: #35394b;
+  --glow-a: rgba(140, 170, 238, 0.11);
+  --glow-b: rgba(129, 200, 190, 0.07);
+  --shadow-card: 0 24px 55px -38px rgba(0, 0, 0, 0.85);
+  --shadow-pop: 0 28px 70px -24px rgba(0, 0, 0, 0.65);
+}
+
+/* ── Theme: Catppuccin Macchiato ───────────────────────────────────────── */
+
+:root[data-theme='macchiato'] {
+  color-scheme: dark;
+  --bg: #181926;
+  --bg-soft: #1e2030;
+  --surface: #24273a;
+  --surface-2: #292d41;
+  --surface-3: #363a4f;
+  --surface-4: #494d64;
+  --border: #363a4f;
+  --border-strong: #494d64;
+  --fg: #cad3f5;
+  --muted: #b8c0e0;
+  --faint: #a5adcb;
+  --accent: #8aadf4;
+  --accent-strong: #aac3f8;
+  --accent-soft: rgba(138, 173, 244, 0.13);
+  --accent-faint: rgba(138, 173, 244, 0.06);
+  --accent-contrast: #181926;
+  --accent-2: #8bd5ca;
+  --accent-2-soft: rgba(139, 213, 202, 0.12);
+  --success: #a6da95;
+  --success-soft: rgba(166, 218, 149, 0.12);
+  --warning: #eed49f;
+  --warning-soft: rgba(238, 212, 159, 0.12);
+  --error: #ed8796;
+  --error-soft: rgba(237, 135, 150, 0.12);
+  --info: #7dc4e4;
+  --info-soft: rgba(125, 196, 228, 0.1);
+  --c1: #8aadf4;
+  --c2: #8bd5ca;
+  --c3: #eed49f;
+  --c4: #f5a97f;
+  --c5: #c6a0f6;
+  --c6: #7dc4e4;
+  --res-water: #7dc4e4;
+  --res-energy: #eed49f;
+  --res-agriculture: #a6da95;
+  --res-livestock: #f5a97f;
+  --res-oil: #8087a2;
+  --res-metal: #8aadf4;
+  --res-rareEarth: #c6a0f6;
+  --res-uranium: #8bd5ca;
+  --chart-grid: rgba(202, 211, 245, 0.11);
+  --map-ocean: #101119;
+  --map-ocean-light: #181926;
+  --map-land: #354b4b;
+  --map-border: #101119;
+  --map-label: #cad3f5;
+  --map-dot: rgba(202, 211, 245, 0.06);
+  --header-bg: rgba(24, 25, 38, 0.87);
+  --tooltip-bg: #292d41;
+  --glow-a: rgba(138, 173, 244, 0.11);
+  --glow-b: rgba(139, 213, 202, 0.07);
+  --shadow-card: 0 24px 55px -38px rgba(0, 0, 0, 0.86);
+  --shadow-pop: 0 28px 70px -24px rgba(0, 0, 0, 0.66);
+}
+
+/* ── Theme: Catppuccin Mocha ───────────────────────────────────────────── */
+
+:root[data-theme='mocha'] {
+  color-scheme: dark;
+  --bg: #11111b;
+  --bg-soft: #181825;
+  --surface: #1e1e2e;
+  --surface-2: #242437;
+  --surface-3: #313244;
+  --surface-4: #45475a;
+  --border: #313244;
+  --border-strong: #45475a;
+  --fg: #cdd6f4;
+  --muted: #bac2de;
+  --faint: #a6adc8;
+  --accent: #89b4fa;
+  --accent-strong: #b4c8fc;
+  --accent-soft: rgba(137, 180, 250, 0.13);
+  --accent-faint: rgba(137, 180, 250, 0.06);
+  --accent-contrast: #11111b;
+  --accent-2: #94e2d5;
+  --accent-2-soft: rgba(148, 226, 213, 0.12);
+  --success: #a6e3a1;
+  --success-soft: rgba(166, 227, 161, 0.12);
+  --warning: #f9e2af;
+  --warning-soft: rgba(249, 226, 175, 0.12);
+  --error: #f38ba8;
+  --error-soft: rgba(243, 139, 168, 0.12);
+  --info: #89dceb;
+  --info-soft: rgba(137, 220, 235, 0.1);
+  --c1: #89b4fa;
+  --c2: #94e2d5;
+  --c3: #f9e2af;
+  --c4: #fab387;
+  --c5: #cba6f7;
+  --c6: #89dceb;
+  --res-water: #89dceb;
+  --res-energy: #f9e2af;
+  --res-agriculture: #a6e3a1;
+  --res-livestock: #fab387;
+  --res-oil: #7f849c;
+  --res-metal: #89b4fa;
+  --res-rareEarth: #cba6f7;
+  --res-uranium: #94e2d5;
+  --chart-grid: rgba(205, 214, 244, 0.11);
+  --map-ocean: #0d0d15;
+  --map-ocean-light: #181825;
+  --map-land: #2d4640;
+  --map-border: #0d0d15;
+  --map-label: #cdd6f4;
+  --map-dot: rgba(205, 214, 244, 0.06);
+  --header-bg: rgba(17, 17, 27, 0.87);
+  --tooltip-bg: #242437;
+  --glow-a: rgba(137, 180, 250, 0.11);
+  --glow-b: rgba(148, 226, 213, 0.07);
+  --shadow-card: 0 24px 55px -38px rgba(0, 0, 0, 0.9);
+  --shadow-pop: 0 28px 70px -24px rgba(0, 0, 0, 0.7);
+}
+
+/* ── Utilities ─────────────────────────────────────────────────────────── */
+
+.text-muted {
+  color: var(--muted);
+}
+
+.text-positive {
+  color: var(--success) !important;
+}
+
+.text-negative {
+  color: var(--error) !important;
+}
+
+.text-warning {
+  color: var(--warning) !important;
+}
+
+.num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.mono {
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+  color: var(--muted);
+}
+
+.divider {
+  display: inline-block;
+  width: 1px;
+  height: 12px;
+  background: var(--border-strong);
+  vertical-align: middle;
+}
+
+.live-dot {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--accent-2);
+  box-shadow: 0 0 0 4px var(--accent-2-soft);
+  animation: pulse-dot 3.4s ease-in-out infinite;
+}
+
+.skip-link {
+  position: fixed;
+  top: 8px;
+  left: 8px;
+  z-index: 500;
+  padding: 8px 14px;
+  border-radius: var(--radius-sm);
+  background: var(--accent);
+  color: var(--accent-contrast);
+  transform: translateY(-160%);
+  transition: transform 0.18s ease;
+}
+
+.skip-link:focus {
+  transform: translateY(0);
+}
+
+.mini-kicker {
+  display: block;
+  color: var(--faint);
+  font-size: 0.66rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.helper-text {
+  margin-top: 10px;
+  color: var(--muted);
+  font-size: 0.8rem;
+  line-height: 1.6;
+}
+
+@keyframes pulse-dot {
+  0%,
+  100% {
+    opacity: 1;
+    box-shadow: 0 0 0 4px var(--accent-2-soft);
+  }
+  50% {
+    opacity: 0.65;
+    box-shadow: 0 0 0 7px transparent;
+  }
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes rise-in {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes pop-in {
+  from {
+    opacity: 0;
+    transform: translateY(18px) scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes spin-die {
+  0% {
+    transform: rotate(0) scale(1);
+  }
+  30% {
+    transform: rotate(100deg) scale(1.06);
+  }
+  60% {
+    transform: rotate(230deg) scale(0.96);
+  }
+  100% {
+    transform: rotate(360deg) scale(1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+    transition-duration: 0.001ms !important;
+  }
+}

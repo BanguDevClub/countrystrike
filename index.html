@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="color-scheme" content="dark light" />
+    <meta name="theme-color" content="#101218" />
+
+    <title>Country Strike — Turn-Based Geopolitical Strategy</title>
+    <meta
+      name="description"
+      content="Run a nation in Country Strike: a turn-based strategy game of budgets, industry, diplomacy, trade and power. Build a world, steer an economy, and unite it."
+    />
+    <meta
+      name="keywords"
+      content="country strike, strategy game, browser game, turn-based strategy, nation builder, geopolitics, economy simulation, react game"
+    />
+    <meta name="author" content="BanguDevClub" />
+    <link rel="canonical" href="https://banguDevClub.github.io/countrystrike/" />
+
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Country Strike" />
+    <meta property="og:url" content="https://banguDevClub.github.io/countrystrike/" />
+    <meta property="og:title" content="Country Strike — Turn-Based Geopolitical Strategy" />
+    <meta
+      property="og:description"
+      content="A living world of budgets, resources, ministries and rival powers. Ten actions a turn. One country to run. Unite the world."
+    />
+    <meta property="og:image" content="https://banguDevClub.github.io/countrystrike/og-image.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="Country Strike — a stylized world map and game logo" />
+    <meta property="og:locale" content="en_US" />
+
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="Country Strike — Turn-Based Geopolitical Strategy" />
+    <meta
+      name="twitter:description"
+      content="A living world of budgets, resources, ministries and rival powers. Ten actions a turn. One country to run. Unite the world."
+    />
+    <meta
+      name="twitter:image"
+      content="https://banguDevClub.github.io/countrystrike/og-image.png"
+    />
+
+    <link rel="icon" type="image/svg+xml" href="%BASE_URL%favicon.svg" />
+    <link rel="apple-touch-icon" href="%BASE_URL%favicon.svg" />
+    <link rel="manifest" href="%BASE_URL%site.webmanifest" />
+
+    <script>
+      ;(() => {
+        try {
+          const raw = localStorage.getItem('countrystrike-prefs')
+          if (!raw) return
+          const theme = JSON.parse(raw)?.state?.theme
+          const allowed = ['dark', 'light', 'latte', 'frappe', 'macchiato', 'mocha']
+          if (allowed.includes(theme)) document.documentElement.dataset.theme = theme
+        } catch {
+          /* ignore corrupt preferences */
+        }
+      })()
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <noscript>
+      <div style="padding: 2rem; font-family: system-ui, sans-serif">
+        Country Strike is an interactive game and needs JavaScript enabled.
+      </div>
+    </noscript>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

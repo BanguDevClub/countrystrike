@@ -1,0 +1,75 @@
+{
+  "name": "countrystrike",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Country Strike — a turn-based geopolitical strategy game about running a country, its economy, and its place in the world.",
+  "homepage": "https://github.com/BanguDevClub/countrystrike",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/BanguDevClub/countrystrike.git"
+  },
+  "bugs": {
+    "url": "https://github.com/BanguDevClub/countrystrike/issues"
+  },
+  "keywords": [
+    "strategy-game",
+    "browser-game",
+    "react",
+    "typescript",
+    "vite",
+    "simulation"
+  ],
+  "engines": {
+    "node": ">=22.12.0"
+  },
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -b && vite build",
+    "preview": "vite preview",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "typecheck": "tsc -b --pretty false",
+    "validate": "npm run typecheck && npm run lint && npm run format:check && vite build",
+    "audit": "npm audit --audit-level=moderate",
+    "audit:fix": "npm audit fix",
+    "outdated": "npm outdated",
+    "update": "npm update",
+    "clean": "rimraf dist node_modules/.vite",
+    "reinstall": "rimraf node_modules package-lock.json && npm install",
+    "fresh": "npm run reinstall && npm run validate"
+  },
+  "dependencies": {
+    "@fontsource-variable/inter": "^5.3.0",
+    "@fontsource-variable/space-grotesk": "^5.3.0",
+    "katex": "^0.19.1",
+    "lucide-react": "^1.70.0",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1",
+    "react-is": "^19.3.1",
+    "recharts": "^3.10.1",
+    "zustand": "^5.1.0"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@types/katex": "^0.16.8",
+    "@types/node": "^26.6.6",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@vitejs/plugin-react": "^6.2.1",
+    "eslint": "^10.14.0",
+    "eslint-plugin-react-hooks": "^7.1.1",
+    "eslint-plugin-react-refresh": "^0.5.7",
+    "globals": "^17.14.0",
+    "prettier": "^3.9.10",
+    "rimraf": "^6.1.4",
+    "typescript": "~6.0.3",
+    "typescript-eslint": "^8.72.1",
+    "vite": "^8.3.6"
+  },
+  "overrides": {
+    "minimatch": "^11.0.5"
+  }
+}
