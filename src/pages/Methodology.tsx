@@ -247,6 +247,12 @@ export function Methodology() {
           <Formula
             tex={String.raw`\text{Known Reserves}_{t+1} = \max(0,\ \text{Known Reserves}_t - \text{Production})`}
           />
+          <Formula
+            tex={String.raw`\text{Reserve Runway} = \frac{\text{Known Reserves}}{\text{Production}} \quad (\text{if Production} > 0)`}
+          />
+          <Formula
+            tex={String.raw`\text{Stock Runway} = \frac{\text{Stock}}{|\text{Final Balance}|} \quad (\text{if Final Balance} < 0)`}
+          />
         </div>
         <p>
           <strong>
@@ -259,6 +265,12 @@ export function Methodology() {
             B<sub>industry</sub>
           </strong>{' '}
           is the Ministry of Industry budget multiplier (low 0.96, normal 1.00, high 1.04).
+        </p>
+        <p>
+          <strong>Reserve runway</strong> estimates how many turns known reserves will last under
+          the current production rate (indefinite if production is zero).{' '}
+          <strong>Stock runway</strong> estimates how many turns the stored stockpile can sustain an
+          ongoing deficit before shortage strikes (indefinite under positive or balanced net flow).
         </p>
         <p>
           <strong>Upgrades (d6):</strong> 1 is failure, 2 small improvement (+1 Lv / modest

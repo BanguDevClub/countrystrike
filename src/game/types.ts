@@ -211,6 +211,8 @@ export interface ResourceFlow {
   reserves: number
   shortage: number
   price: number
+  reserveRunway?: number | null
+  stockRunway?: number | null
 }
 
 export interface BudgetLine {

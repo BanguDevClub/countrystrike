@@ -4,7 +4,13 @@ import type { IndustryAction, ResourceId, ResourceProduction } from '../game/typ
 import { useGame, selectPlayer } from '../state/gameStore'
 import { industryActionCost, INDUSTRY_ACTION_LABELS } from '../game/engine'
 import { resourceFlows, resourceProduction } from '../game/selectors'
-import { formatMoney, formatPercent, formatQuantity } from '../game/format'
+import {
+  formatMoney,
+  formatPercent,
+  formatQuantity,
+  formatReserveRunway,
+  formatStockRunway,
+} from '../game/format'
 import { Badge, PageHeader, SectionCard, StatTile } from '../components/ui'
 import { Icon } from '../components/Icon'
 import { playSfx } from '../game/audio'
@@ -149,6 +155,8 @@ export function Industry() {
           const flow = flows[def.id]
           const production = productions[def.id]
           const actions: IndustryAction[] = ['prospect', 'extraction', 'refinement', 'research']
+          const reserveRunway = formatReserveRunway(state.reserves, flow.production)
+          const stockRunway = formatStockRunway(flow.stock, flow.finalBalance)
           return (
             <article
               key={def.id}
@@ -175,7 +183,16 @@ export function Industry() {
               <div className="resource-metrics">
                 <span>
                   <small>Reserves</small>
-                  <strong>{formatQuantity(state.reserves)}</strong>
+                  <strong
+                    title={`Reserves: ${formatQuantity(state.reserves)} · Lasts ${reserveRunway.text} at current production (${formatQuantity(flow.production)}/turn)`}
+                  >
+                    {formatQuantity(state.reserves)}{' '}
+                    <em
+                      className={reserveRunway.tone !== 'muted' ? `text-${reserveRunway.tone}` : ''}
+                    >
+                      {reserveRunway.text}
+                    </em>
+                  </strong>
                 </span>
                 <span>
                   <small>Extraction</small>
@@ -201,7 +218,14 @@ export function Industry() {
                 </span>
                 <span>
                   <small>Stock</small>
-                  <strong>{formatQuantity(flow.stock)}</strong>
+                  <strong
+                    title={`Stock: ${formatQuantity(flow.stock)} · Lasts ${stockRunway.text} at current net balance (${flow.finalBalance >= 0 ? '+' : ''}${formatQuantity(flow.finalBalance)}/turn)`}
+                  >
+                    {formatQuantity(flow.stock)}{' '}
+                    <em className={stockRunway.tone !== 'muted' ? `text-${stockRunway.tone}` : ''}>
+                      {stockRunway.text}
+                    </em>
+                  </strong>
                 </span>
               </div>
 
@@ -213,6 +237,14 @@ export function Industry() {
                   {flow.finalBalance >= 0 ? 'Surplus' : 'Deficit'}{' '}
                   {formatQuantity(flow.finalBalance)}
                 </span>
+                {flow.finalBalance < 0 && (
+                  <Badge
+                    tone={stockRunway.tone === 'negative' ? 'negative' : 'warning'}
+                    icon="Clock"
+                  >
+                    Stock lasts {stockRunway.text}
+                  </Badge>
+                )}
                 {production.extractionCapacity < production.refinementCapacity && (
                   <Badge tone="warning" icon="Pickaxe">
                     Extraction caps output ({formatQuantity(production.extractionCapacity)})

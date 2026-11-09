@@ -36,8 +36,10 @@ import {
   gdpPerCapita,
   isHostile,
   militaryPower,
+  reserveRunway,
   resourceFlows,
   soldiersPer100k,
+  stockRunway,
 } from './selectors'
 import { eventCandidates } from './events'
 
@@ -630,6 +632,8 @@ export function advanceTurn(game: GameState): GameState {
       flow.stock = state.stock
       flow.reserves = state.reserves
       flow.shortage = Math.max(0, -available)
+      flow.reserveRunway = reserveRunway(state.reserves, flow.production)
+      flow.stockRunway = stockRunway(state.stock, flow.finalBalance)
     }
 
     country.stats.treasury += budget.net

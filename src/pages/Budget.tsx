@@ -16,7 +16,14 @@ import { RESOURCES, RESOURCE_IDS } from '../game/constants'
 import type { ResourceId } from '../game/types'
 import { useGame, selectPlayer } from '../state/gameStore'
 import { computeBudget, debtLimit, debtToGdp, resourceFlows } from '../game/selectors'
-import { formatMoney, formatNumber, formatPercent, formatQuantity } from '../game/format'
+import {
+  formatMoney,
+  formatNumber,
+  formatPercent,
+  formatQuantity,
+  formatReserveRunway,
+  formatStockRunway,
+} from '../game/format'
 import { PageHeader, SectionCard, StatTile, Badge, ProgressBar, EmptyState } from '../components/ui'
 import { Icon } from '../components/Icon'
 
@@ -107,7 +114,8 @@ export function Budget() {
   const limit = debtLimit(player)
   const maxLedger = Math.max(budget.totalRevenue, budget.totalExpenses, 1)
   const currentResourceValue = resource.production * resource.price
-
+  const selectedReserveRunway = formatReserveRunway(resource.reserves, resource.production)
+  const selectedStockRunway = formatStockRunway(resource.stock, resource.finalBalance)
   return (
     <div className="page">
       <PageHeader page="budget">
@@ -593,10 +601,20 @@ export function Budget() {
             <span>
               <small>Stock</small>
               <strong>{formatQuantity(resource.stock)}</strong>
+              <small
+                className={`cell-sub ${selectedStockRunway.tone !== 'muted' ? `text-${selectedStockRunway.tone}` : ''}`}
+              >
+                {selectedStockRunway.text}
+              </small>
             </span>
             <span>
               <small>Reserves</small>
               <strong>{formatQuantity(resource.reserves)}</strong>
+              <small
+                className={`cell-sub ${selectedReserveRunway.tone !== 'muted' ? `text-${selectedReserveRunway.tone}` : ''}`}
+              >
+                {selectedReserveRunway.text}
+              </small>
             </span>
           </div>
         </SectionCard>
@@ -617,7 +635,13 @@ export function Budget() {
             <thead>
               <tr>
                 <th>Resource</th>
-                <th className="num">Reserves</th>
+                <th
+                  className="num"
+                  title="Known reserves and estimated runway in turns at current production"
+                >
+                  Reserves
+                  <small className="cell-sub">runway</small>
+                </th>
                 <th className="num">Extraction</th>
                 <th className="num">Refinement</th>
                 <th className="num">Production</th>
@@ -625,13 +649,21 @@ export function Budget() {
                 <th className="num">Imports</th>
                 <th className="num">Exports</th>
                 <th className="num">Balance</th>
-                <th className="num">Stock</th>
+                <th
+                  className="num"
+                  title="Stored stock and estimated runway in turns at current net balance"
+                >
+                  Stock
+                  <small className="cell-sub">runway</small>
+                </th>
               </tr>
             </thead>
             <tbody>
               {RESOURCE_IDS.map((id) => {
                 const def = RESOURCES.find((entry) => entry.id === id)!
                 const flow = flows[id]
+                const reserveRunway = formatReserveRunway(flow.reserves, flow.production)
+                const stockRunway = formatStockRunway(flow.stock, flow.finalBalance)
                 return (
                   <tr key={id}>
                     <td>
@@ -641,7 +673,17 @@ export function Budget() {
                         <Badge tone="muted">{def.category}</Badge>
                       </span>
                     </td>
-                    <td className="num">{formatQuantity(flow.reserves)}</td>
+                    <td
+                      className="num"
+                      title={`Reserves: ${formatQuantity(flow.reserves)} · Lasts ${reserveRunway.text} at current production (${formatQuantity(flow.production)}/turn)`}
+                    >
+                      <span>{formatQuantity(flow.reserves)}</span>
+                      <small
+                        className={`cell-sub ${reserveRunway.tone !== 'muted' ? `text-${reserveRunway.tone}` : ''}`}
+                      >
+                        {reserveRunway.text}
+                      </small>
+                    </td>
                     <td className="num">{formatQuantity(flow.extractionCapacity)}</td>
                     <td className="num">{formatQuantity(flow.refinementCapacity)}</td>
                     <td className="num">{formatQuantity(flow.production)}</td>
@@ -654,7 +696,17 @@ export function Budget() {
                       {flow.finalBalance > 0 ? '+' : ''}
                       {formatQuantity(flow.finalBalance)}
                     </td>
-                    <td className="num">{formatQuantity(flow.stock)}</td>
+                    <td
+                      className="num"
+                      title={`Stock: ${formatQuantity(flow.stock)} · Lasts ${stockRunway.text} at current net balance (${flow.finalBalance >= 0 ? '+' : ''}${formatQuantity(flow.finalBalance)}/turn)`}
+                    >
+                      <span>{formatQuantity(flow.stock)}</span>
+                      <small
+                        className={`cell-sub ${stockRunway.tone !== 'muted' ? `text-${stockRunway.tone}` : ''}`}
+                      >
+                        {stockRunway.text}
+                      </small>
+                    </td>
                   </tr>
                 )
               })}
@@ -663,8 +715,9 @@ export function Budget() {
         </div>
         <p className="table-note">
           Production = MIN(extraction, refinement) × technology. Final balance = production +
-          imports − consumption − exports. Known reserves fall by production each turn. The full
-          methodology is in{' '}
+          imports − consumption − exports. Known reserves fall by production each turn. Reserve and
+          stock runways show how many turns remain under current production and net balance. The
+          full methodology is in{' '}
           <button type="button" className="text-btn" onClick={() => setPage('methodology')}>
             Methodology
           </button>

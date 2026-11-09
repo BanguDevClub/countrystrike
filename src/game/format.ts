@@ -51,6 +51,52 @@ export function formatQuantity(value: number): string {
   return `${sign}${preciseFormatter.format(abs)}`
 }
 
+export function formatTurnRunway(turns: number | null, fallback = '∞'): string {
+  if (turns === null) return fallback
+  if (turns <= 0) return '0 turns'
+  if (turns < 0.1) return '<0.1 turns'
+  if (turns < 10) {
+    const formatted = formatNumber(turns, 1)
+    return `${formatted} ${formatted === '1' ? 'turn' : 'turns'}`
+  }
+  return `${formatNumber(Math.round(turns))} turns`
+}
+
+export function formatReserveRunway(
+  reserves: number,
+  production: number,
+): { turns: number | null; text: string; tone: 'warning' | 'negative' | 'muted' } {
+  if (reserves <= 0) {
+    return { turns: 0, text: '0 turns', tone: 'negative' }
+  }
+  if (production <= 0) {
+    return { turns: null, text: '∞', tone: 'muted' }
+  }
+  const turns = reserves / production
+  const text = formatTurnRunway(turns)
+  const tone = turns <= 5 ? 'negative' : turns <= 15 ? 'warning' : 'muted'
+  return { turns, text, tone }
+}
+
+export function formatStockRunway(
+  stock: number,
+  finalBalance: number,
+): { turns: number | null; text: string; tone: 'positive' | 'warning' | 'negative' | 'muted' } {
+  if (finalBalance > 0) {
+    return { turns: null, text: 'Surplus (∞)', tone: 'positive' }
+  }
+  if (finalBalance === 0) {
+    return { turns: null, text: 'Stable (∞)', tone: 'muted' }
+  }
+  if (stock <= 0) {
+    return { turns: 0, text: '0 turns', tone: 'negative' }
+  }
+  const turns = stock / Math.abs(finalBalance)
+  const text = formatTurnRunway(turns)
+  const tone = turns <= 3 ? 'negative' : turns <= 8 ? 'warning' : 'muted'
+  return { turns, text, tone }
+}
+
 export function formatPercent(value: number, digits = 0): string {
   if (!Number.isFinite(value)) return '—'
   return `${value.toFixed(digits)}%`

@@ -217,6 +217,28 @@ export function militaryResourceConsumption(country: Country, resourceId: Resour
   }, 0)
 }
 
+/**
+ * Number of turns remaining until known reserves are exhausted by current production.
+ * Returns null if production is 0 or negative (reserves do not deplete).
+ * Returns 0 if reserves are already 0 or negative.
+ */
+export function reserveRunway(reserves: number, production: number): number | null {
+  if (reserves <= 0) return 0
+  if (production <= 0) return null
+  return reserves / production
+}
+
+/**
+ * Number of turns remaining until stored stock is depleted by net deficit.
+ * Returns null if net balance is positive or zero (stock is growing or stable).
+ * Returns 0 if stock is already 0 or negative and net balance is negative.
+ */
+export function stockRunway(stock: number, finalBalance: number): number | null {
+  if (finalBalance >= 0) return null
+  if (stock <= 0) return 0
+  return stock / Math.abs(finalBalance)
+}
+
 export function resourceFlows(
   country: Country,
   deals: TradeDeal[],
@@ -268,6 +290,8 @@ export function resourceFlows(
       reserves: state.reserves,
       shortage,
       price: prices[resourceId] ?? def.basePrice,
+      reserveRunway: reserveRunway(state.reserves, production),
+      stockRunway: stockRunway(state.stock, finalBalance),
     }
   }
 
