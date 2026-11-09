@@ -509,7 +509,8 @@ export function Trade() {
                       </strong>
                       <span>
                         {formatQuantity(deal.quantity)} {def.unit} · {formatMoney(deal.unitPrice)}
-                        /unit · {deal.remainingTurns} turns left
+                        /unit · {deal.remainingTurns} turn{deal.remainingTurns === 1 ? '' : 's'}{' '}
+                        left{deal.auto && ` · +${deal.pricing === 'below' ? 2 : 1} rel/turn`}
                       </span>
                     </div>
                     <div className="deal-net">
@@ -539,7 +540,7 @@ export function Trade() {
 
         <SectionCard
           title="Auto-deal policy"
-          subtitle="Accept surplus export requests automatically at your chosen price posture."
+          subtitle="Export the minimal amount (1 unit) to all countries in need for 3 turns, enhancing relations each turn."
           action={
             <Badge tone="muted" icon="Handshake">
               No action cost
@@ -582,10 +583,10 @@ export function Trade() {
             <div>
               <strong>How auto-deals work</strong>
               <p>
-                At the end of a turn, the government may sell surplus stock to a country with a
-                deficit. Choosing <em>below market</em> is easy and builds the most goodwill;{' '}
-                <em>at market</em> is balanced; <em>above market</em> protects revenue but may find
-                no buyer. Auto-deals do not cost actions.
+                When a resource has auto-deal enabled, the government automatically exports the
+                minimal amount (1 unit) to all countries in need under 3-turn contracts. Each turn
+                the contract runs, it steadily enhances diplomatic relations (+2/turn below market,
+                +1/turn at/above market). Auto-deals do not cost actions.
               </p>
             </div>
           </div>

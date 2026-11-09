@@ -976,6 +976,8 @@ type TradePricingLabel = 'below' | 'market' | 'above'
 
 export const DEAL_QUANTITIES = [5, 10, 15, 20]
 export const DEAL_DURATION = 5
+export const AUTO_DEAL_DURATION = 3
+export const AUTO_DEAL_MIN_QUANTITY = 1
 export const AUTO_DEAL_MODES = ['off', 'below', 'market', 'above'] as const
 
 /* ── Map layout ────────────────────────────────────────────────────────── */

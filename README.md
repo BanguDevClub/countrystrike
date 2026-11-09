@@ -46,8 +46,9 @@ world and its history are persisted in `localStorage` after every action.
   advancements per resource.
 - **A composite world ranking** — treasure, debt, GDP, population, military power, approval,
   HDI, Gini, violence and depression become a weighted 0–100 score with historical charts.
-- **Trade as foreign policy** — regional balances, supply-and-demand prices, five-turn contracts,
-  price posture, automatic surplus sales and relationship consequences.
+- **Trade as foreign policy** — regional balances, supply-and-demand prices, 3-turn minimal
+  auto-deals enhancing relations each turn with all countries in need, 5-turn manual contracts,
+  price posture, and diplomatic consequences.
 - **Two routes to the end** — reach 100 relations, unlock external approval, campaign it to 100
   and merge a country; or destroy every rival by war. Win by leaving one state standing.
 - **Six themes** — Midnight, Daylight and the four official Catppuccin flavours, with accessible

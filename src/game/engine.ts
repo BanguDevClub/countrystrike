@@ -1,5 +1,7 @@
 import {
   ACTIONS_PER_TURN,
+  AUTO_DEAL_DURATION,
+  AUTO_DEAL_MIN_QUANTITY,
   BUDGET_MULTIPLIERS,
   GOVERNMENT_BY_ID,
   HISTORY_LIMIT,
@@ -120,42 +122,70 @@ function runAutoDeals(game: GameState, player: Country, rng: RNG): void {
   for (const resourceId of RESOURCE_IDS) {
     const mode = player.autoDeal[resourceId]
     if (mode === 'off') continue
-    if (game.deals.some((deal) => deal.auto && deal.resource === resourceId)) continue
+
     const flow = playerFlows[resourceId]
-    const available = Math.max(0, flow.stock - flow.consumption * 0.5 - 10)
-    if (flow.finalBalance <= 0 || available < 2) continue
-    if (!rng.chance(autoDealChance(mode))) continue
-
-    let best: { country: Country; need: number } | null = null
-    for (const country of rivalCountries(game)) {
-      const partnerFlows = resourceFlows(country, game.deals, game.prices)
-      const need = Math.max(0, -partnerFlows[resourceId].finalBalance)
-      if (need > 0.5 && (!best || need > best.need)) best = { country, need }
-    }
-    if (!best) continue
-
-    const quantity = clamp(Math.round(Math.min(available, best.need, 12)), 2, 12)
-    const price = game.prices[resourceId] * autoDealMultiplier(mode)
-    game.deals.push({
-      id: `deal-auto-${game.turn}-${resourceId}-${Math.floor(rng.next() * 1_000_000)}`,
-      countryId: best.country.id,
-      resource: resourceId,
-      direction: 'export',
-      quantity,
-      unitPrice: roundTo(price, 2),
-      pricing: mode,
-      remainingTurns: 1,
-      auto: true,
-      createdAtTurn: game.turn,
-    })
-    best.country.relations = clamp(best.country.relations + 1, -100, 100)
-    pushLog(
-      game,
-      'economy',
-      `Auto-deal: ${quantity.toFixed(0)} ${RESOURCE_BY_ID[resourceId].unit} of ${RESOURCE_BY_ID[resourceId].name.toLowerCase()} sold to ${best.country.name}.`,
-      player,
-      'positive',
+    let availableUnits = Math.max(
+      0,
+      flow.finalBalance > 0
+        ? Math.floor(flow.finalBalance)
+        : Math.floor((flow.stock - 5) / AUTO_DEAL_DURATION),
     )
+    if (availableUnits < AUTO_DEAL_MIN_QUANTITY) continue
+
+    const countriesInNeed = rivalCountries(game).filter((country) => {
+      const alreadyHasDeal = game.deals.some(
+        (deal) =>
+          deal.auto &&
+          deal.countryId === country.id &&
+          deal.resource === resourceId &&
+          deal.remainingTurns > 0,
+      )
+      if (alreadyHasDeal) return false
+      const partnerFlows = resourceFlows(country, game.deals, game.prices)
+      const partnerFlow = partnerFlows[resourceId]
+      return (
+        partnerFlow.finalBalance < -0.1 || (partnerFlow.stock < 5 && partnerFlow.finalBalance <= 0)
+      )
+    })
+
+    if (countriesInNeed.length === 0) continue
+
+    countriesInNeed.sort((a, b) => {
+      const needA = -resourceFlows(a, game.deals, game.prices)[resourceId].finalBalance
+      const needB = -resourceFlows(b, game.deals, game.prices)[resourceId].finalBalance
+      return needB - needA
+    })
+
+    const def = RESOURCE_BY_ID[resourceId]
+    const price = roundTo(game.prices[resourceId] * autoDealMultiplier(mode), 2)
+
+    for (const country of countriesInNeed) {
+      if (availableUnits < AUTO_DEAL_MIN_QUANTITY) break
+      if (!rng.chance(autoDealChance(mode))) continue
+
+      game.deals.push({
+        id: `deal-auto-${game.turn}-${country.id}-${resourceId}-${Math.floor(rng.next() * 1_000_000)}`,
+        countryId: country.id,
+        resource: resourceId,
+        direction: 'export',
+        quantity: AUTO_DEAL_MIN_QUANTITY,
+        unitPrice: price,
+        pricing: mode,
+        remainingTurns: AUTO_DEAL_DURATION,
+        auto: true,
+        createdAtTurn: game.turn,
+      })
+      availableUnits -= AUTO_DEAL_MIN_QUANTITY
+
+      const relGain = mode === 'below' ? 2 : 1
+      pushLog(
+        game,
+        'economy',
+        `Auto-deal (${AUTO_DEAL_DURATION} turns): ${AUTO_DEAL_MIN_QUANTITY} ${def.unit} of ${def.name.toLowerCase()} exported to ${country.name} (+${relGain} rel/turn).`,
+        country,
+        'positive',
+      )
+    }
   }
 }
 
@@ -280,6 +310,18 @@ function updateRelations(game: GameState, player: Country, rng: RNG): void {
     const previous = country.relations
     let delta = rng.float(-0.75, 0.75) - tariffPressure + foreignBudget * 0.25
     delta += (combinedModifiers(country).relation ?? 0) * 0.01
+
+    const activeAutoDeals = game.deals.filter(
+      (deal) => deal.auto && deal.countryId === country.id && deal.remainingTurns > 0,
+    )
+    let autoDealBoost = 0
+    for (const deal of activeAutoDeals) {
+      autoDealBoost += deal.pricing === 'below' ? 2 : 1
+    }
+    if (autoDealBoost > 0) {
+      delta = Math.max(autoDealBoost, delta + autoDealBoost)
+    }
+
     country.relations = clamp(country.relations + delta, -100, 100)
     const threshold =
       game.settings.difficulty === 'easy'

@@ -526,6 +526,12 @@ export function Methodology() {
               relations each turn. At 100 relations, external approval campaigns become available.
               At 100 approval, the country can be merged for two actions.
             </p>
+            <p>
+              Auto-deals run automatically each turn without action cost. When enabled for a
+              resource, the government exports the minimal amount (1 unit) to all rival countries in
+              need under 3-turn contracts. Each turn an auto-deal runs, it steadily enhances
+              diplomatic relations (+2/turn for below market, +1/turn for at or above market).
+            </p>
           </div>
           <div className="method-formula-col">
             <Formula
@@ -537,6 +543,9 @@ export function Methodology() {
             />
             <Formula
               tex={String.raw`\text{Approval campaign} \rightarrow +5\text{ to }+13\ \text{external approval}`}
+            />
+            <Formula
+              tex={String.raw`\text{Auto-deal} = 1\ \text{unit},\ 3\ \text{turns},\ +1\text{ to }+2\ \text{relations/turn to all in need}`}
             />
           </div>
         </div>
