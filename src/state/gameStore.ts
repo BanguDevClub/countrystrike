@@ -369,7 +369,7 @@ export const useGame = create<GameStore>()(
         if (player.stats.treasury < cost) {
           announce(
             set,
-            `Need ${formatMoney(cost)} for this ${INDUSTRY_ACTION_LABELS[action].toLowerCase()}.`,
+            `Cannot afford ${INDUSTRY_ACTION_LABELS[action].toLowerCase()}: Need ${formatMoney(cost)} (Treasury has ${formatMoney(player.stats.treasury)}).`,
             'negative',
           )
           return
@@ -449,18 +449,24 @@ export const useGame = create<GameStore>()(
             }
           } else if (check.operation === 'extraction') {
             if (success) {
-              resource.extractionLevel = Math.min(12, resource.extractionLevel + 1)
-              outcomeLines.push(`Extraction upgraded to level ${resource.extractionLevel}.`)
+              resource.extractionLevel += 1
+              outcomeLines.push(
+                `Extraction facility upgraded to Level ${resource.extractionLevel}! Capacity increased.`,
+              )
             } else {
-              outcomeLines.push('The upgrade ran over budget and produced no additional capacity.')
+              outcomeLines.push(
+                `Upgrade attempt failed (d6 rolled ${roll}, needed > ${check.dc}). The facility was not upgraded.`,
+              )
             }
           } else if (check.operation === 'refinement') {
             if (success) {
-              resource.refinementLevel = Math.min(12, resource.refinementLevel + 1)
-              outcomeLines.push(`Refinement upgraded to level ${resource.refinementLevel}.`)
+              resource.refinementLevel += 1
+              outcomeLines.push(
+                `Refinement plant upgraded to Level ${resource.refinementLevel}! Capacity increased.`,
+              )
             } else {
               outcomeLines.push(
-                'The new plant failed its commissioning tests. No capacity was added.',
+                `Upgrade attempt failed (d6 rolled ${roll}, needed > ${check.dc}). The facility was not upgraded.`,
               )
             }
           } else {

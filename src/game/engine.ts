@@ -219,26 +219,22 @@ function runAiActions(game: GameState, rng: RNG): void {
       const roll = rng.next()
       if (roll < 0.3) {
         const resourceId = upgradeResource(rng, country, game, difficulty)
-        if (country.resources[resourceId].extractionLevel < 12) {
-          country.resources[resourceId].extractionLevel += 1
-          pushLog(
-            game,
-            'industry',
-            `${country.name} expands ${RESOURCE_BY_ID[resourceId].name.toLowerCase()} extraction.`,
-            country,
-          )
-        }
+        country.resources[resourceId].extractionLevel += 1
+        pushLog(
+          game,
+          'industry',
+          `${country.name} expands ${RESOURCE_BY_ID[resourceId].name.toLowerCase()} extraction to level ${country.resources[resourceId].extractionLevel}.`,
+          country,
+        )
       } else if (roll < 0.5) {
         const resourceId = upgradeResource(rng, country, game, difficulty)
-        if (country.resources[resourceId].refinementLevel < 12) {
-          country.resources[resourceId].refinementLevel += 1
-          pushLog(
-            game,
-            'industry',
-            `${country.name} upgrades ${RESOURCE_BY_ID[resourceId].name.toLowerCase()} refining capacity.`,
-            country,
-          )
-        }
+        country.resources[resourceId].refinementLevel += 1
+        pushLog(
+          game,
+          'industry',
+          `${country.name} upgrades ${RESOURCE_BY_ID[resourceId].name.toLowerCase()} refining capacity to level ${country.resources[resourceId].refinementLevel}.`,
+          country,
+        )
       } else if (roll < 0.74) {
         const unitId: UnitId =
           difficulty === 'hard'
@@ -292,10 +288,7 @@ function runAiActions(game: GameState, rng: RNG): void {
       )
       if (deficitResources.length > 0) {
         const id = deficitResources[0]!
-        country.resources[id].extractionLevel = Math.min(
-          12,
-          country.resources[id].extractionLevel + 1,
-        )
+        country.resources[id].extractionLevel += 1
       }
     }
   }

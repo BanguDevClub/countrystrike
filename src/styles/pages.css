@@ -1608,6 +1608,13 @@
   opacity: 0.45;
   cursor: not-allowed;
 }
+.industry-action.is-unaffordable {
+  opacity: 0.55;
+}
+
+.industry-action.is-unaffordable:hover {
+  border-color: color-mix(in srgb, var(--warning) 45%, var(--border));
+}
 
 .industry-action-top {
   display: flex;

@@ -211,6 +211,16 @@ export function Industry() {
                   {flow.finalBalance >= 0 ? 'Surplus' : 'Deficit'}{' '}
                   {formatQuantity(flow.finalBalance)}
                 </span>
+                {production.extractionCapacity < production.refinementCapacity && (
+                  <Badge tone="warning" icon="Pickaxe">
+                    Extraction caps output ({formatQuantity(production.extractionCapacity)})
+                  </Badge>
+                )}
+                {production.refinementCapacity < production.extractionCapacity && (
+                  <Badge tone="warning" icon="Layers">
+                    Refinement caps output ({formatQuantity(production.refinementCapacity)})
+                  </Badge>
+                )}
                 <span className="resource-research-line">
                   Research Lv {state.researchLevel} ·{' '}
                   {formatPercent(state.researchLevel * 2 + state.advances * 15, 0)} tech bonus
@@ -235,14 +245,18 @@ export function Industry() {
                   const cost = industryActionCost(player, def.id, action)
                   const affordable = player.stats.treasury >= cost && canAct
                   const meta = ACTION_META[action]
+                  const tooltip = !canAct
+                    ? 'No actions remaining this turn (0/10). End the turn to refresh actions.'
+                    : player.stats.treasury < cost
+                      ? `Cannot afford: Need ${formatMoney(cost)} (Treasury has ${formatMoney(player.stats.treasury)})`
+                      : `${INDUSTRY_ACTION_LABELS[action]} · ${meta.threshold} · ${meta.hint}`
                   return (
                     <button
                       key={action}
                       type="button"
-                      className={`industry-action ${action === 'research' ? 'is-research' : ''}`}
+                      className={`industry-action ${action === 'research' ? 'is-research' : ''} ${!affordable ? 'is-unaffordable' : ''}`}
                       onClick={() => handleAction(def.id, action)}
-                      disabled={!affordable}
-                      title={`${INDUSTRY_ACTION_LABELS[action]} · ${meta.threshold} · ${meta.hint}`}
+                      title={tooltip}
                     >
                       <span className="industry-action-top">
                         <Icon name={meta.icon} size={16} />
