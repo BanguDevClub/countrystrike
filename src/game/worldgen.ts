@@ -202,6 +202,7 @@ function emptyResources(): Record<ResourceId, ResourceState> {
         stock: 0,
         advances: 0,
         researchLevel: 0,
+        researchBonus: 0,
       }
       return result
     },
@@ -309,6 +310,7 @@ function makeResources(
       stock: roundTo(stock, 1),
       advances,
       researchLevel,
+      researchBonus: researchLevel * 0.05,
     }
   }
   return resources

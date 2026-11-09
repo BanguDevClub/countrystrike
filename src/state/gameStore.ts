@@ -374,13 +374,14 @@ export const useGame = create<GameStore>()(
           )
           return
         }
-        const dc = action === 'prospect' ? 3 : action === 'research' ? 1 : 2
+        const die = action === 'research' ? 10 : 6
+        const dc = 1
         const resource = RESOURCE_BY_ID[resourceId]
         const descriptions: Record<IndustryAction, string> = {
-          prospect: `Survey new fields and expand known ${resource.name.toLowerCase()} reserves. A d6 above 3 finds a viable deposit.`,
-          extraction: `Upgrade the ${resource.name.toLowerCase()} extraction facilities. A d6 above 2 raises extraction capacity by one level.`,
-          refinement: `Build additional ${resource.name.toLowerCase()} refining capacity. A d6 above 2 raises refinement by one level.`,
-          research: `Fund a research stimulus for ${resource.name.toLowerCase()}. A d6 above 1 grants a permanent research bonus, then a d10 above 9 may unlock a major breakthrough.`,
+          prospect: `Survey new fields for ${resource.name.toLowerCase()} reserves on a d6: 1 is failure, 2 small, 3 average, 4–5 good discovery, 6 discovery with an advancement.`,
+          extraction: `Upgrade ${resource.name.toLowerCase()} extraction facility on a d6: 1 is failure, 2 small (+1 Lv), 3 average (+2 Lv), 4–5 good (+3 Lv), 6 upgrade with an advancement.`,
+          refinement: `Upgrade ${resource.name.toLowerCase()} refining facility on a d6: 1 is failure, 2 small (+1 Lv), 3 average (+2 Lv), 4–5 good (+3 Lv), 6 upgrade with an advancement.`,
+          research: `Fund a research stimulus for ${resource.name.toLowerCase()} on a single d10: 1 is failure, 2–4 grants +5% bonus on extraction and refinement, 5–9 grants +10% bonus, 10 grants +20% bonus with an advancement.`,
         }
         set({
           modal: {
@@ -389,7 +390,7 @@ export const useGame = create<GameStore>()(
               kind: 'industry',
               title: `${INDUSTRY_ACTION_LABELS[action]} · ${resource.name}`,
               description: descriptions[action],
-              die: 6,
+              die,
               dc,
               modifier: 0,
               actionCost: 1,
@@ -421,10 +422,13 @@ export const useGame = create<GameStore>()(
         }
         const rng = new RNG(game.rngState)
         const roll = rng.dice(check.die)
-        const success =
-          check.kind === 'war' ? roll <= (check.winChance ?? 50) : roll + check.modifier > check.dc
+        let success =
+          check.kind === 'war'
+            ? roll <= (check.winChance ?? 50)
+            : check.kind === 'industry'
+              ? roll > 1
+              : roll + check.modifier > check.dc
         const outcomeLines: string[] = []
-        let canBreakthrough = false
 
         player.stats.treasury -= check.costMoney
         game.actionsLeft -= check.actionCost
@@ -432,58 +436,168 @@ export const useGame = create<GameStore>()(
         if (check.kind === 'industry' && check.resource && check.operation) {
           const resource = player.resources[check.resource]
           const def = RESOURCE_BY_ID[check.resource]
+
+          const awardAdvancement = () => {
+            if (resource.advances < 5) {
+              resource.advances += 1
+              resource.stock += def.capacityPerLevel * 3
+              resource.reserves += def.capacityPerLevel * 20
+              outcomeLines.push(
+                `Major breakthrough advancement unlocked (${resource.advances}/5): +15% permanent production capacity!`,
+              )
+              pushLog(
+                game,
+                'industry',
+                `${def.name} breakthrough advancement ${resource.advances}/5 in ${player.name}.`,
+                player,
+                'positive',
+              )
+            } else {
+              outcomeLines.push(
+                `Maximum major advancements (5/5) already unlocked for ${def.name}.`,
+              )
+            }
+          }
+
           if (check.operation === 'prospect') {
-            if (success) {
+            const reservesMod = combinedModifiers(player).reserves ?? 0
+            if (roll === 1) {
+              success = false
+              outcomeLines.push(
+                'Survey failed (d6 rolled 1). No commercially viable deposits were found.',
+              )
+            } else if (roll === 2) {
+              success = true
+              const found = roundTo(def.capacityPerLevel * rng.float(25, 45) * (1 + reservesMod), 1)
+              resource.reserves += found
+              outcomeLines.push(
+                `Small improvement (d6 rolled 2): Discovered modest reserves (+${formatQuantity(found)} ${def.unit}).`,
+              )
+            } else if (roll === 3) {
+              success = true
+              const found = roundTo(def.capacityPerLevel * rng.float(55, 80) * (1 + reservesMod), 1)
+              resource.reserves += found
+              outcomeLines.push(
+                `Average improvement (d6 rolled 3): Discovered solid reserves (+${formatQuantity(found)} ${def.unit}).`,
+              )
+            } else if (roll === 4 || roll === 5) {
+              success = true
               const found = roundTo(
-                def.capacityPerLevel *
-                  rng.float(30, 85) *
-                  (1 + (combinedModifiers(player).reserves ?? 0)),
+                def.capacityPerLevel * rng.float(95, 140) * (1 + reservesMod),
                 1,
               )
               resource.reserves += found
               outcomeLines.push(
-                `Survey successful: ${formatQuantity(found)} ${def.unit} added to known reserves.`,
+                `Good improvement (d6 rolled ${roll}): Discovered rich reserves (+${formatQuantity(found)} ${def.unit}).`,
               )
-            } else {
-              outcomeLines.push('The survey found nothing commercially viable. The money is spent.')
+            } else if (roll === 6) {
+              success = true
+              const found = roundTo(
+                def.capacityPerLevel * rng.float(95, 140) * (1 + reservesMod),
+                1,
+              )
+              resource.reserves += found
+              outcomeLines.push(
+                `Improvement with an advancement (d6 rolled 6): Discovered abundant reserves (+${formatQuantity(found)} ${def.unit})!`,
+              )
+              awardAdvancement()
             }
           } else if (check.operation === 'extraction') {
-            if (success) {
+            if (roll === 1) {
+              success = false
+              outcomeLines.push('Extraction upgrade failed (d6 rolled 1). No capacity was added.')
+            } else if (roll === 2) {
+              success = true
               resource.extractionLevel += 1
               outcomeLines.push(
-                `Extraction facility upgraded to Level ${resource.extractionLevel}! Capacity increased.`,
+                `Small improvement (d6 rolled 2): Extraction upgraded by +1 level (now Lv ${resource.extractionLevel}).`,
               )
-            } else {
+            } else if (roll === 3) {
+              success = true
+              resource.extractionLevel += 2
               outcomeLines.push(
-                `Upgrade attempt failed (d6 rolled ${roll}, needed > ${check.dc}). The facility was not upgraded.`,
+                `Average improvement (d6 rolled 3): Extraction upgraded by +2 levels (now Lv ${resource.extractionLevel}).`,
               )
+            } else if (roll === 4 || roll === 5) {
+              success = true
+              resource.extractionLevel += 3
+              outcomeLines.push(
+                `Good improvement (d6 rolled ${roll}): Extraction upgraded by +3 levels (now Lv ${resource.extractionLevel}).`,
+              )
+            } else if (roll === 6) {
+              success = true
+              resource.extractionLevel += 3
+              outcomeLines.push(
+                `Improvement with an advancement (d6 rolled 6): Extraction upgraded by +3 levels (now Lv ${resource.extractionLevel})!`,
+              )
+              awardAdvancement()
             }
           } else if (check.operation === 'refinement') {
-            if (success) {
+            if (roll === 1) {
+              success = false
+              outcomeLines.push('Refinement upgrade failed (d6 rolled 1). No capacity was added.')
+            } else if (roll === 2) {
+              success = true
               resource.refinementLevel += 1
               outcomeLines.push(
-                `Refinement plant upgraded to Level ${resource.refinementLevel}! Capacity increased.`,
+                `Small improvement (d6 rolled 2): Refinement upgraded by +1 level (now Lv ${resource.refinementLevel}).`,
               )
-            } else {
+            } else if (roll === 3) {
+              success = true
+              resource.refinementLevel += 2
               outcomeLines.push(
-                `Upgrade attempt failed (d6 rolled ${roll}, needed > ${check.dc}). The facility was not upgraded.`,
+                `Average improvement (d6 rolled 3): Refinement upgraded by +2 levels (now Lv ${resource.refinementLevel}).`,
               )
+            } else if (roll === 4 || roll === 5) {
+              success = true
+              resource.refinementLevel += 3
+              outcomeLines.push(
+                `Good improvement (d6 rolled ${roll}): Refinement upgraded by +3 levels (now Lv ${resource.refinementLevel}).`,
+              )
+            } else if (roll === 6) {
+              success = true
+              resource.refinementLevel += 3
+              outcomeLines.push(
+                `Improvement with an advancement (d6 rolled 6): Refinement upgraded by +3 levels (now Lv ${resource.refinementLevel})!`,
+              )
+              awardAdvancement()
             }
-          } else {
-            if (success) {
+          } else if (check.operation === 'research') {
+            const currentBonus = resource.researchBonus ?? resource.researchLevel * 0.05
+            if (roll === 1) {
+              success = false
+              outcomeLines.push(
+                'Research stimulus failed (d10 rolled 1). No research bonus or advancement gained.',
+              )
+            } else if (roll >= 2 && roll <= 4) {
+              success = true
+              resource.researchBonus = roundTo(currentBonus + 0.05, 2)
               resource.researchLevel += 1
               outcomeLines.push(
-                `Research level ${resource.researchLevel}: permanent output bonus +2%.`,
+                `Research bonus (d10 rolled ${roll}): +5% bonus on ${def.name.toLowerCase()} extraction and refinement (total bonus: +${Math.round(resource.researchBonus * 100)}%).`,
               )
-              if (resource.advances < 5) canBreakthrough = true
-            } else {
-              outcomeLines.push('The research programme produced no usable results.')
+            } else if (roll >= 5 && roll <= 9) {
+              success = true
+              resource.researchBonus = roundTo(currentBonus + 0.1, 2)
+              resource.researchLevel += 1
+              outcomeLines.push(
+                `Research bonus (d10 rolled ${roll}): +10% bonus on ${def.name.toLowerCase()} extraction and refinement (total bonus: +${Math.round(resource.researchBonus * 100)}%).`,
+              )
+            } else if (roll === 10) {
+              success = true
+              resource.researchBonus = roundTo(currentBonus + 0.2, 2)
+              resource.researchLevel += 1
+              outcomeLines.push(
+                `Breakthrough research (d10 rolled 10): +20% bonus on ${def.name.toLowerCase()} extraction and refinement (total bonus: +${Math.round(resource.researchBonus * 100)}%) with an advancement!`,
+              )
+              awardAdvancement()
             }
           }
+
           pushLog(
             game,
             'industry',
-            `${INDUSTRY_ACTION_LABELS[check.operation]} ${check.resource}: ${success ? 'success' : 'failure'}.`,
+            `${INDUSTRY_ACTION_LABELS[check.operation]} on ${def.name}: ${success ? 'success' : 'failure'} (${check.die === 10 ? 'd10' : 'd6'} rolled ${roll}).`,
             player,
             success ? 'positive' : 'negative',
           )
@@ -583,51 +697,12 @@ export const useGame = create<GameStore>()(
         check.roll = roll
         check.success = success
         check.outcomeLines = outcomeLines
-        check.canBreakthrough = canBreakthrough
-        game.rngState = rng.value
-        set({ game, modal: { kind: 'check', check } })
-      },
-
-      rollBreakthrough: () => {
-        const current = get().game
-        const modal = get().modal
-        if (!current || !modal || modal.kind !== 'check') return
-        const check = { ...modal.check }
-        if (!check.canBreakthrough || !check.resource || check.breakthrough) return
-        const game = cloneGame(current)
-        const player = getPlayer(game)
-        const rng = new RNG(game.rngState)
-        const roll = rng.dice(10)
-        const success = roll > 9
-        const resource = player.resources[check.resource]
-        if (success && resource.advances < 5) {
-          resource.advances += 1
-          const def = RESOURCE_BY_ID[check.resource]
-          resource.stock += def.capacityPerLevel * 3
-          resource.reserves += def.capacityPerLevel * 20
-          check.outcomeLines = [
-            ...(check.outcomeLines ?? []),
-            `Breakthrough ${resource.advances}/5: ${def.name} output permanently boosted by 15%.`,
-          ]
-          pushLog(
-            game,
-            'industry',
-            `${def.name} research breakthrough ${resource.advances}/5 in ${player.name}.`,
-            player,
-            'positive',
-          )
-        } else {
-          check.outcomeLines = [
-            ...(check.outcomeLines ?? []),
-            'The breakthrough check fails. The research bonus remains, but no major advance was found.',
-          ]
-        }
-        check.breakthroughRoll = roll
-        check.breakthrough = success
         check.canBreakthrough = false
         game.rngState = rng.value
         set({ game, modal: { kind: 'check', check } })
       },
+
+      rollBreakthrough: () => {},
 
       recruit: (unitId, quantity) => {
         const current = get().game

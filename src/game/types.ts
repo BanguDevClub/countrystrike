@@ -116,6 +116,7 @@ export interface ResourceState {
   stock: number
   advances: number
   researchLevel: number
+  researchBonus?: number
 }
 
 export interface CountryStats {

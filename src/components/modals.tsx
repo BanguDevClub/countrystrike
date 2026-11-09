@@ -683,23 +683,13 @@ function CountryModal({ countryId }: { countryId: string }) {
 function CheckModal({ check }: { check: PendingCheck }) {
   const closeModal = useGame((state) => state.closeModal)
   const rollCheck = useGame((state) => state.rollCheck)
-  const rollBreakthrough = useGame((state) => state.rollBreakthrough)
   const [rolling, setRolling] = useState(false)
-  const [breakthroughRolling, setBreakthroughRolling] = useState(false)
   const playedRoll = useRef<number | null>(null)
-  const playedBreakthrough = useRef<number | null>(null)
 
   useEffect(() => {
     if (check.stage === 'rolled' && check.roll !== undefined && playedRoll.current !== check.roll) {
       playedRoll.current = check.roll
       playSfx(check.success ? 'success' : 'fail')
-    }
-    if (
-      check.breakthroughRoll !== undefined &&
-      playedBreakthrough.current !== check.breakthroughRoll
-    ) {
-      playedBreakthrough.current = check.breakthroughRoll
-      playSfx(check.breakthrough ? 'success' : 'fail')
     }
   }, [check])
 
@@ -713,22 +703,15 @@ function CheckModal({ check }: { check: PendingCheck }) {
     }, 700)
   }
 
-  const doBreakthrough = () => {
-    if (breakthroughRolling) return
-    setBreakthroughRolling(true)
-    playSfx('roll')
-    window.setTimeout(() => {
-      setBreakthroughRolling(false)
-      rollBreakthrough()
-    }, 700)
-  }
-
   const dieLabel = `d${check.die}`
   const successLine =
     check.kind === 'war'
       ? `Victory chance ${check.winChance ?? 50}% on a d100`
-      : `${dieLabel} > ${check.dc}${check.modifier !== 0 ? ` + ${check.modifier}` : ''}`
-  const resultDie = check.breakthroughRoll !== undefined ? check.breakthroughRoll : check.roll
+      : check.operation === 'research'
+        ? 'Single d10: 1 fail · 2–4 +5% bonus · 5–9 +10% bonus · 10 +20% & advancement'
+        : check.kind === 'industry'
+          ? 'd6: 1 fail · 2 small · 3 avg · 4–5 good · 6 advancement'
+          : `${dieLabel} > ${check.dc}${check.modifier !== 0 ? ` + ${check.modifier}` : ''}`
 
   return (
     <ModalShell
@@ -748,23 +731,10 @@ function CheckModal({ check }: { check: PendingCheck }) {
             {rolling ? 'Rolling…' : `Roll ${dieLabel}`}
           </button>
         ) : (
-          <div className="check-footer">
-            {check.canBreakthrough && (
-              <button
-                type="button"
-                className="btn"
-                onClick={doBreakthrough}
-                disabled={breakthroughRolling}
-              >
-                <Icon name="Sparkles" size={16} />
-                {breakthroughRolling ? 'Rolling…' : 'Roll breakthrough d10'}
-              </button>
-            )}
-            <button type="button" className="btn btn-primary" onClick={closeModal}>
-              Continue
-              <Icon name="ArrowRight" size={16} />
-            </button>
-          </div>
+          <button type="button" className="btn btn-primary" onClick={closeModal}>
+            Continue
+            <Icon name="ArrowRight" size={16} />
+          </button>
         )
       }
     >
@@ -781,12 +751,12 @@ function CheckModal({ check }: { check: PendingCheck }) {
         </span>
       </div>
 
-      <div className={`dice-stage ${rolling || breakthroughRolling ? 'is-rolling' : ''}`}>
+      <div className={`dice-stage ${rolling ? 'is-rolling' : ''}`}>
         <div className="die" aria-hidden="true">
           <span className="die-number">
-            {rolling || breakthroughRolling ? '··' : resultDie !== undefined ? resultDie : dieLabel}
+            {rolling ? '··' : check.roll !== undefined ? check.roll : '?'}
           </span>
-          <span className="die-caption">{breakthroughRolling ? 'd10' : dieLabel}</span>
+          <span className="die-caption">{dieLabel}</span>
         </div>
         {check.stage === 'rolled' ? (
           <div className={`check-result ${check.success ? 'is-success' : 'is-failure'}`}>
@@ -794,15 +764,37 @@ function CheckModal({ check }: { check: PendingCheck }) {
               <Icon name={check.success ? 'Check' : 'X'} size={18} />
             </span>
             <div>
-              <strong>{check.success ? 'Success' : 'Failure'}</strong>
+              <strong>
+                {check.kind === 'war'
+                  ? check.success
+                    ? 'Victory'
+                    : 'Defeat'
+                  : check.operation === 'research'
+                    ? check.roll === 10
+                      ? 'Breakthrough advancement (+20%)'
+                      : check.success
+                        ? 'Research bonus'
+                        : 'Failure'
+                    : check.kind === 'industry'
+                      ? check.roll === 6
+                        ? 'Breakthrough advancement'
+                        : check.roll === 4 || check.roll === 5
+                          ? 'Good improvement'
+                          : check.roll === 3
+                            ? 'Average improvement'
+                            : check.roll === 2
+                              ? 'Small improvement'
+                              : 'Failure'
+                      : check.success
+                        ? 'Success'
+                        : 'Failure'}
+              </strong>
               <span>
                 {check.kind === 'war'
                   ? check.success
                     ? 'The campaign achieves its objectives.'
                     : 'The campaign fails to achieve its objectives.'
-                  : check.breakthroughRoll !== undefined
-                    ? `Primary ${dieLabel} check: rolled ${check.roll}.`
-                    : `You rolled ${check.roll}.`}
+                  : `You rolled ${check.roll} on a ${dieLabel}.`}
               </span>
             </div>
           </div>
@@ -821,38 +813,6 @@ function CheckModal({ check }: { check: PendingCheck }) {
               <Icon name="ChevronRight" size={13} /> {line}
             </p>
           ))}
-        </div>
-      )}
-
-      {check.canBreakthrough && (
-        <div className="breakthrough-callout">
-          <span className="breakthrough-icon">
-            <Icon name="Sparkles" size={20} />
-          </span>
-          <div>
-            <strong>A major breakthrough is within reach.</strong>
-            <p>
-              The research programme succeeded. Roll a d10: above 9 unlocks one of up to five
-              permanent advancements for this resource.
-            </p>
-          </div>
-        </div>
-      )}
-
-      {check.breakthroughRoll !== undefined && (
-        <div className={`check-result ${check.breakthrough ? 'is-success' : 'is-failure'}`}>
-          <span className="check-result-icon">
-            <Icon name={check.breakthrough ? 'Sparkles' : 'X'} size={18} />
-          </span>
-          <div>
-            <strong>{check.breakthrough ? 'Breakthrough' : 'No breakthrough'}</strong>
-            <span>
-              The d10 landed on {check.breakthroughRoll}.{' '}
-              {check.breakthrough
-                ? 'A permanent advancement was secured.'
-                : 'Research continues, but nothing major emerged.'}
-            </span>
-          </div>
         </div>
       )}
     </ModalShell>

@@ -184,22 +184,25 @@ export function resourceProduction(country: Country, resourceId: ResourceId): Re
   const resourceMods = resourceModifier(modifiers, resourceId)
   const industryBudget = BUDGET_MULTIPLIERS[country.ministries.industry.budget]
   const budgetFactor = 1 + industryBudget * 0.04
+  const researchBonus = state.researchBonus ?? state.researchLevel * 0.05
   const extractionCapacity = Math.max(
     0,
     state.extractionLevel *
       def.capacityPerLevel *
       Math.max(0.1, 1 + resourceMods.extraction) *
-      budgetFactor,
+      budgetFactor *
+      (1 + researchBonus),
   )
   const refinementCapacity = Math.max(
     0,
     state.refinementLevel *
       def.capacityPerLevel *
       Math.max(0.1, 1 + resourceMods.extraction * 0.55) *
-      budgetFactor,
+      budgetFactor *
+      (1 + researchBonus),
   )
-  const researchMultiplier = 1 + state.researchLevel * 0.02 + state.advances * 0.15
-  const capacity = Math.min(extractionCapacity, refinementCapacity) * researchMultiplier
+  const advancementMultiplier = 1 + state.advances * 0.15
+  const capacity = Math.min(extractionCapacity, refinementCapacity) * advancementMultiplier
   return {
     extractionCapacity,
     refinementCapacity,

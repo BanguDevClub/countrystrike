@@ -42,8 +42,8 @@ world and its history are persisted in `localStorage` after every action.
   six ministries, military upkeep, public services, debt service and trade contracts. The
   Laffer curve is modelled, not decorative.
 - **Eight resource industries** — water, energy, agriculture, livestock, oil, metal, rare earth
-  and uranium. Prospect, expand extraction, build refinement and research up to five major
-  advancements per resource.
+  and uranium. Tiered d6 upgrades (1 fail, 2–5 improvements, 6 advancement) and single d10 research
+  stimulus (1 fail, 2–9 bonuses on ext & ref, 10 +20% & advancement).
 - **A composite world ranking** — treasure, debt, GDP, population, military power, approval,
   HDI, Gini, violence and depression become a weighted 0–100 score with historical charts.
 - **Trade as foreign policy** — regional balances, supply-and-demand prices, 3-turn minimal
@@ -158,9 +158,9 @@ save.
 ### Resource flow
 
 ```
-Extraction = level × capacity × (1 + extraction modifiers) × industry budget
-Refinement = level × capacity × (1 + 0.55 × extraction modifiers) × industry budget
-Production = min(Extraction, Refinement) × (1 + 0.02 × research + 0.15 × advances)
+Extraction = level × capacity × (1 + extraction modifiers) × industry budget × (1 + research bonus)
+Refinement = level × capacity × (1 + 0.55 × extraction modifiers) × industry budget × (1 + research bonus)
+Production = min(Extraction, Refinement) × (1 + 0.15 × advances)
 Consumption = population × civil factor + Σ(unit count × unit resource use)
 Balance = production + imports − consumption − exports
 Stock' = max(0, stock + balance)

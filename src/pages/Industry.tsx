@@ -12,23 +12,23 @@ import { playSfx } from '../game/audio'
 const ACTION_META: Record<IndustryAction, { icon: string; threshold: string; hint: string }> = {
   prospect: {
     icon: 'Search',
-    threshold: 'd6 > 3',
-    hint: 'Cheap. Finds new reserves; the deposit size depends on the resource and your survey modifiers.',
+    threshold: 'd6: 1 fail / 2–5 boost / 6 advance',
+    hint: 'd6: 1 is failure, 2 small, 3 average, 4–5 good discovery, 6 discovery with an advancement.',
   },
   extraction: {
     icon: 'Pickaxe',
-    threshold: 'd6 > 2',
-    hint: 'Raises extraction capacity by one level. A failed upgrade wastes the money.',
+    threshold: 'd6: 1 fail / 2–5 upgrade / 6 advance',
+    hint: 'd6: 1 is failure, 2 small (+1 Lv), 3 average (+2 Lv), 4–5 good (+3 Lv), 6 upgrade with an advancement.',
   },
   refinement: {
     icon: 'Layers',
-    threshold: 'd6 > 2',
-    hint: 'Raises refining capacity by one level. Expensive, and required to turn extraction into production.',
+    threshold: 'd6: 1 fail / 2–5 upgrade / 6 advance',
+    hint: 'd6: 1 is failure, 2 small (+1 Lv), 3 average (+2 Lv), 4–5 good (+3 Lv), 6 upgrade with an advancement.',
   },
   research: {
     icon: 'Sparkles',
-    threshold: 'd6 > 1 + d10 > 9',
-    hint: 'Small permanent research bonus on success, with a rare chance at one of five major advancements.',
+    threshold: 'd10: 1 fail / 2–9 bonus / 10 advance',
+    hint: 'Single d10: 1 failure, 2–4 +5% bonus on extraction and refinement, 5–9 +10% bonus, 10 +20% bonus with an advancement.',
   },
 }
 
@@ -116,7 +116,7 @@ export function Industry() {
       <SectionCard
         className="industry-intro"
         title="Resource industries"
-        subtitle="Each operation costs one action and money. Research is expensive; prospecting is cheap; capacity only matters if extraction and refinement meet."
+        subtitle="Each operation costs one action and money. Upgrades roll a d6 (1 fail, 2–5 improvements, 6 advancement). Research stimulus rolls a single d10 (1 fail, 2–9 bonuses, 10 +20% & advancement)."
         action={
           <Badge tone="accent" icon="Dices">
             {game.actionsLeft} actions left
@@ -126,17 +126,19 @@ export function Industry() {
         <div className="industry-formula-strip">
           <span>
             <Icon name="ArrowRight" size={14} /> Production = MIN(extraction, refinement) ×
-            technology
+            advancements
           </span>
           <span>
-            <Icon name="ArrowRight" size={14} /> Consumption = civil + military
+            <Icon name="ArrowRight" size={14} /> Research = permanent bonus on extraction and
+            refinement
           </span>
           <span>
-            <Icon name="ArrowRight" size={14} /> Balance = production + imports − consumption −
-            exports
+            <Icon name="ArrowRight" size={14} /> d6: 1 fail · 2 small (+1) · 3 avg (+2) · 4–5 good
+            (+3) · 6 advance
           </span>
           <span>
-            <Icon name="ArrowRight" size={14} /> Reserves fall by production each turn
+            <Icon name="ArrowRight" size={14} /> Single d10: 1 fail · 2–4 +5% · 5–9 +10% · 10 +20% &
+            advance
           </span>
         </div>
       </SectionCard>
@@ -222,8 +224,9 @@ export function Industry() {
                   </Badge>
                 )}
                 <span className="resource-research-line">
-                  Research Lv {state.researchLevel} ·{' '}
-                  {formatPercent(state.researchLevel * 2 + state.advances * 15, 0)} tech bonus
+                  Research bonus +
+                  {Math.round((state.researchBonus ?? state.researchLevel * 0.05) * 100)}% on ext &
+                  ref · {state.advances}/5 advances (+{state.advances * 15}%)
                 </span>
               </div>
 

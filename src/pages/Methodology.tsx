@@ -227,13 +227,13 @@ export function Methodology() {
       >
         <div className="formula-stack">
           <Formula
-            tex={String.raw`\text{Extraction} = L_e \cdot C \cdot (1 + m_{\text{extraction}} + m_{\text{resource}}) \cdot B_{\text{industry}}`}
+            tex={String.raw`\text{Extraction} = L_e \cdot C \cdot (1 + m_{\text{extraction}} + m_{\text{resource}}) \cdot B_{\text{industry}} \cdot (1 + b_{\text{research}})`}
           />
           <Formula
-            tex={String.raw`\text{Refinement} = L_r \cdot C \cdot \left(1 + 0.55\,m_{\text{extraction}}\right) \cdot B_{\text{industry}}`}
+            tex={String.raw`\text{Refinement} = L_r \cdot C \cdot \left(1 + 0.55\,m_{\text{extraction}}\right) \cdot B_{\text{industry}} \cdot (1 + b_{\text{research}})`}
           />
           <Formula
-            tex={String.raw`\text{Production} = \min(\text{Extraction},\text{Refinement}) \cdot (1 + 0.02\,R + 0.15\,A)`}
+            tex={String.raw`\text{Production} = \min(\text{Extraction},\text{Refinement}) \cdot (1 + 0.15\,A)`}
           />
           <Formula
             tex={String.raw`\text{Consumption} = P \cdot c_{\text{civil}} \cdot (1 + m_{\text{consumption}}) + \sum_{\text{units}} N_u \cdot u_{\text{resource}}`}
@@ -249,15 +249,26 @@ export function Methodology() {
           />
         </div>
         <p>
-          <strong>R</strong> is the resource research level (2% output per level),{' '}
-          <strong>A</strong> is the number of major advancements (15% output each, up to five per
-          resource), and{' '}
+          <strong>
+            b<sub>research</sub>
+          </strong>{' '}
+          is the accumulated research bonus on extraction and refinement (+5%, +10%, or +20% per
+          roll), <strong>A</strong> is the number of major advancements (15% output each, up to five
+          per resource), and{' '}
           <strong>
             B<sub>industry</sub>
           </strong>{' '}
-          is the Ministry of Industry budget multiplier (low 0.96, normal 1.00, high 1.04). A
-          shortage appears when the projected stock would go negative; the part of demand that
-          cannot be met is the shortage.
+          is the Ministry of Industry budget multiplier (low 0.96, normal 1.00, high 1.04).
+        </p>
+        <p>
+          <strong>Upgrades (d6):</strong> 1 is failure, 2 small improvement (+1 Lv / modest
+          reserves), 3 average improvement (+2 Lv / solid reserves), 4–5 good improvement (+3 Lv /
+          rich reserves), 6 improvement with an advancement (+3 Lv / rich reserves &amp; +1
+          advancement).
+        </p>
+        <p>
+          <strong>Research stimulus (single d10):</strong> 1 is failure, 2–4 is +5% bonus on
+          extraction and refinement, 5–9 is +10% bonus, 10 is +20% bonus with an advancement.
         </p>
         <div className="table-wrap">
           <table>
