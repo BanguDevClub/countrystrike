@@ -37,6 +37,31 @@ const ACTION_META: Record<IndustryAction, { icon: string; threshold: string; hin
     hint: 'Single d10: 1 failure, 2–4 +5% bonus on extraction and refinement, 5–9 +10% bonus, 10 +20% bonus with an advancement.',
   },
 }
+const ACTION_META_MASTERY: Record<
+  IndustryAction,
+  { icon: string; threshold: string; hint: string }
+> = {
+  prospect: {
+    icon: 'Search',
+    threshold: 'd6: 1 fail / 2–5 boost+ / 6 master',
+    hint: 'Advancement mastery: 1 failure, 2 modest boost (+stock), 3 solid boost (+stock), 4–5 rich boost (+stock), 6 master discovery (+massive reserves & stock).',
+  },
+  extraction: {
+    icon: 'Pickaxe',
+    threshold: 'd6: 1 fail / 2–5 up++ / 6 master',
+    hint: 'Advancement mastery: 1 failure, 2 (+2 Lv), 3 (+4 Lv), 4–5 (+5 Lv), 6 (+6 Lv & master reward).',
+  },
+  refinement: {
+    icon: 'Layers',
+    threshold: 'd6: 1 fail / 2–5 up++ / 6 master',
+    hint: 'Advancement mastery: 1 failure, 2 (+2 Lv), 3 (+4 Lv), 4–5 (+5 Lv), 6 (+6 Lv & master reward).',
+  },
+  research: {
+    icon: 'Sparkles',
+    threshold: 'd10: 1 fail / 2–9 bonus+ / 10 master',
+    hint: 'Advancement mastery: 1 failure, 2–4 +10% bonus, 5–9 +20% bonus, 10 +35% bonus & master grant.',
+  },
+}
 
 export function Industry() {
   const game = useGame((state) => state.game)
@@ -155,7 +180,10 @@ export function Industry() {
           const flow = flows[def.id]
           const production = productions[def.id]
           const actions: IndustryAction[] = ['prospect', 'extraction', 'refinement', 'research']
-          const reserveRunway = formatReserveRunway(state.reserves, flow.production)
+          const reserveRunway = formatReserveRunway(
+            state.reserves,
+            flow.depletion ?? flow.production,
+          )
           const stockRunway = formatStockRunway(flow.stock, flow.finalBalance)
           return (
             <article
@@ -184,7 +212,7 @@ export function Industry() {
                 <span>
                   <small>Reserves</small>
                   <strong
-                    title={`Reserves: ${formatQuantity(state.reserves)} · Lasts ${reserveRunway.text} at current production (${formatQuantity(flow.production)}/turn)`}
+                    title={`Reserves: ${formatQuantity(state.reserves)} · Lasts ${reserveRunway.text} at current depletion (${formatQuantity(flow.depletion ?? flow.production)}/turn)`}
                   >
                     {formatQuantity(state.reserves)}{' '}
                     <em
@@ -279,7 +307,8 @@ export function Industry() {
                 {actions.map((action) => {
                   const cost = industryActionCost(player, def.id, action)
                   const affordable = player.stats.treasury >= cost && canAct
-                  const meta = ACTION_META[action]
+                  const hasAllAdvancements = state.advances >= 5 || totalAdvances >= 40
+                  const meta = (hasAllAdvancements ? ACTION_META_MASTERY : ACTION_META)[action]
                   const tooltip = !canAct
                     ? 'No actions remaining this turn (0/10). End the turn to refresh actions.'
                     : player.stats.treasury < cost

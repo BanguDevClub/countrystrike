@@ -2,12 +2,19 @@ import { useEffect, useId, useRef, useState, type ReactNode } from 'react'
 import {
   GOVERNMENT_BY_ID,
   MINISTRIES,
+  MINISTRY_COST_FACTORS,
   RESOURCES,
   RESOURCE_IDS,
   TRAIT_BY_ID,
   UNITS,
 } from '../game/constants'
-import type { PendingCheck } from '../game/types'
+import type {
+  BudgetLevel,
+  EventOutcome,
+  EventStatSnapshot,
+  ModalState,
+  PendingCheck,
+} from '../game/types'
 import { useGame } from '../state/gameStore'
 import { playSfx } from '../game/audio'
 import {
@@ -29,13 +36,14 @@ import {
   formatNumber,
   formatPercent,
   formatQuantity,
+  formatSignedNumber,
+  formatSignedPercent,
+  titleCase,
 } from '../game/format'
-import { EVENT_BY_ID } from '../game/events'
-import type { ModalState } from '../game/types'
+import { resolveEventForGame } from '../game/events'
 import { Icon } from './Icon'
 import { Flag } from './Flag'
 import { Badge, ProgressBar, StatTile } from './ui'
-
 /* ── Shell ─────────────────────────────────────────────────────────────── */
 
 export function ModalShell({
@@ -123,57 +131,711 @@ export function ModalShell({
 }
 
 /* ── Event ─────────────────────────────────────────────────────────────── */
+/* ── Event & Turn Briefing ─────────────────────────────────────────────── */
+function EventStatDiffView({
+  before,
+  after,
+}: {
+  before: EventStatSnapshot
+  after: EventStatSnapshot
+}) {
+  const diffs = [
+    {
+      label: 'Approval',
+      beforeStr: `${before.approval.toFixed(1)}%`,
+      afterStr: `${after.approval.toFixed(1)}%`,
+      delta: after.approval - before.approval,
+      deltaStr: `${formatSignedNumber(after.approval - before.approval, 1)}%`,
+      positiveIsGood: true,
+    },
+    {
+      label: 'GDP',
+      beforeStr: formatMoney(before.gdp),
+      afterStr: formatMoney(after.gdp),
+      delta: after.gdp - before.gdp,
+      deltaStr: formatSignedPercent(((after.gdp - before.gdp) / Math.max(1, before.gdp)) * 100),
+      positiveIsGood: true,
+    },
+    {
+      label: 'Treasury',
+      beforeStr: formatMoney(before.treasury),
+      afterStr: formatMoney(after.treasury),
+      delta: after.treasury - before.treasury,
+      deltaStr: `${after.treasury - before.treasury >= 0 ? '+' : ''}${formatMoney(after.treasury - before.treasury)}`,
+      positiveIsGood: true,
+    },
+    {
+      label: 'Debt',
+      beforeStr: formatMoney(before.debt),
+      afterStr: formatMoney(after.debt),
+      delta: after.debt - before.debt,
+      deltaStr: `${after.debt - before.debt >= 0 ? '+' : ''}${formatMoney(after.debt - before.debt)}`,
+      positiveIsGood: false,
+    },
+    {
+      label: 'HDI',
+      beforeStr: before.hdi.toFixed(3),
+      afterStr: after.hdi.toFixed(3),
+      delta: after.hdi - before.hdi,
+      deltaStr: formatSignedNumber(after.hdi - before.hdi, 3),
+      positiveIsGood: true,
+    },
+    {
+      label: 'Security',
+      beforeStr: `${before.security.toFixed(1)}%`,
+      afterStr: `${after.security.toFixed(1)}%`,
+      delta: after.security - before.security,
+      deltaStr: `${formatSignedNumber(after.security - before.security, 1)}%`,
+      positiveIsGood: true,
+    },
+    {
+      label: 'Corruption',
+      beforeStr: `${before.corruption.toFixed(1)}%`,
+      afterStr: `${after.corruption.toFixed(1)}%`,
+      delta: after.corruption - before.corruption,
+      deltaStr: `${formatSignedNumber(after.corruption - before.corruption, 1)}%`,
+      positiveIsGood: false,
+    },
+  ]
 
-function EventModal({ eventId }: { eventId: string }) {
+  return (
+    <div className="event-stats-comparison">
+      {diffs.map((d) => {
+        const isZero = Math.abs(d.delta) < 0.0001
+        const isGood = d.positiveIsGood ? d.delta > 0 : d.delta < 0
+        const toneClass = isZero ? 'is-neutral' : isGood ? 'is-positive' : 'is-negative'
+        return (
+          <div key={d.label} className="stat-comparison-card">
+            <span className="stat-comparison-label">{d.label}</span>
+            <div className="stat-comparison-values">
+              <span className="stat-diff-text">
+                {d.beforeStr} → <strong>{d.afterStr}</strong>
+              </span>
+              <span className={`stat-delta-badge ${toneClass}`}>
+                {isZero ? '0' : d.deltaStr}
+              </span>
+            </div>
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
+const BUDGET_LEVELS: { id: BudgetLevel; label: string }[] = [
+  { id: 'low', label: 'Low' },
+  { id: 'normal', label: 'Normal' },
+  { id: 'high', label: 'High' },
+]
+
+function EventModal({ eventId }: { eventId?: string }) {
   const game = useGame((state) => state.game)
   const resolveEvent = useGame((state) => state.resolveEvent)
-  const event = EVENT_BY_ID[eventId]
-  if (!game || !event) return null
+  const closeModal = useGame((state) => state.closeModal)
+  const setMinistryBudget = useGame((state) => state.setMinistryBudget)
+  const replaceMinister = useGame((state) => state.replaceMinister)
+  const auditMinister = useGame((state) => state.auditMinister)
+  const upgradeMinistry = useGame((state) => state.upgradeMinistry)
+  const trainMinister = useGame((state) => state.trainMinister)
+
+  const [activeTab, setActiveTab] = useState<'event' | 'history' | 'ministries'>('event')
+  const [historyTurnFilter, setHistoryTurnFilter] = useState<number | 'all'>('all')
+  const [eventIndex, setEventIndex] = useState(0)
+  const [turnEventIds, setTurnEventIds] = useState<string[]>(() => {
+    if (game?.eventQueue && game.eventQueue.length > 0) {
+      return [...game.eventQueue]
+    }
+    return eventId ? [eventId] : []
+  })
+  const [resolvedOutcomes, setResolvedOutcomes] = useState<Record<string, EventOutcome>>({})
+
+  useEffect(() => {
+    if (game?.eventQueue && game.eventQueue.length > 0) {
+      setTurnEventIds((prev) => {
+        const next = [...prev]
+        for (const id of game.eventQueue) {
+          if (!next.includes(id)) next.push(id)
+        }
+        return next
+      })
+    }
+  }, [game?.eventQueue])
+
+  useEffect(() => {
+    if (game?.lastOutcome?.eventId) {
+      setResolvedOutcomes((prev) => ({
+        ...prev,
+        [game.lastOutcome!.eventId]: game.lastOutcome!,
+      }))
+    }
+  }, [game?.lastOutcome])
+
+  if (!game) return null
+  const player = game.countries.find((entry) => entry.isPlayer) ?? game.countries[0]
+  if (!player) return null
+
+  const allHistory = game.eventHistory ?? []
+  const historyTurns = Array.from(new Set(allHistory.map((h) => h.turn))).sort((a, b) => b - a)
+  const filteredHistory = historyTurnFilter === 'all' ? allHistory : allHistory.filter((h) => h.turn === historyTurnFilter)
+
+  const totalEvents = turnEventIds.length
+  const validIndex = Math.min(eventIndex, Math.max(0, totalEvents - 1))
+  const currentEventId = turnEventIds[validIndex] ?? game.eventQueue[0]
+  const event = currentEventId ? resolveEventForGame(game, currentEventId) : null
+  const isCurrentResolved = Boolean(
+    (currentEventId && resolvedOutcomes[currentEventId]) ||
+    (event && currentEventId && !game.eventQueue.includes(currentEventId)),
+  )
+  const currentOutcome = currentEventId
+    ? resolvedOutcomes[currentEventId] ??
+      (game.lastOutcome?.eventId === currentEventId ? game.lastOutcome : null)
+    : null
+  const historyMatch = allHistory.slice().reverse().find((h) => h.eventId === currentEventId)
+
+  const resolvedCount = turnEventIds.filter(
+    (id) => Boolean(resolvedOutcomes[id] || !game.eventQueue.includes(id)),
+  ).length
+  const allEventsResolved = totalEvents > 0 && resolvedCount >= totalEvents
+  const handleChoose = (choiceId: string) => {
+    if (!currentEventId) return
+    playSfx('click')
+    resolveEvent(choiceId, currentEventId, false)
+  }
+
+  const handleResolveAndProceed = () => {
+    if (game.eventQueue.length > 0) {
+      for (const unresId of [...game.eventQueue]) {
+        const unresEvent = resolveEventForGame(game, unresId)
+        if (unresEvent?.choices[0]) {
+          resolveEvent(unresEvent.choices[0].id, unresId, false)
+        }
+      }
+    }
+    closeModal()
+  }
+
+  const rarityTone =
+    event?.rarity === 'legendary'
+      ? 'warning'
+      : event?.rarity === 'epic'
+        ? 'positive'
+        : event?.rarity === 'rare'
+          ? 'accent'
+          : 'muted'
+
+  const rarityIcon =
+    event?.rarity === 'legendary'
+      ? 'Crown'
+      : event?.rarity === 'epic'
+        ? 'Sparkles'
+        : event?.rarity === 'rare'
+          ? 'Zap'
+          : 'Info'
+
+  const categoryLabel =
+    event?.ministryCategory === 'corruption'
+      ? 'Corruption'
+      : event?.ministryCategory === 'betrayal'
+        ? 'Betrayal'
+        : event?.ministryCategory === 'improvement'
+          ? 'Improvement'
+          : event?.ministryCategory === 'upgrade'
+            ? 'Upgrade'
+            : null
 
   return (
     <ModalShell
+      wide
+      onClose={closeModal}
       eyebrow={
         <>
           <Badge tone="accent" icon="Sparkles">
-            Event
+            Turn {game.turn} Briefing
           </Badge>
-          <span>Turn {game.turn}</span>
+          <span>Cabinet & Council</span>
+          {totalEvents > 1 && (
+            <Badge tone="neutral" icon="Layers">
+              Event {validIndex + 1} of {totalEvents}
+            </Badge>
+          )}
+          {event && (
+            <Badge tone={rarityTone} icon={rarityIcon}>
+              {titleCase(event.rarity ?? 'common')}
+            </Badge>
+          )}
+          {categoryLabel && (
+            <Badge
+              tone={
+                event?.ministryCategory === 'improvement' || event?.ministryCategory === 'upgrade'
+                  ? 'positive'
+                  : 'negative'
+              }
+              icon={
+                event?.ministryCategory === 'improvement'
+                  ? 'TrendingUp'
+                  : event?.ministryCategory === 'upgrade'
+                    ? 'Zap'
+                    : 'AlertTriangle'
+              }
+            >
+              {categoryLabel}
+            </Badge>
+          )}
         </>
       }
-      title={event.title}
-      icon="Dice5"
-      subtitle={event.body}
+      title={activeTab === 'event' && event ? event.title : 'Cabinet & Ministry Directives'}
+      icon={activeTab === 'event' ? 'Dice5' : 'Landmark'}
+      subtitle={
+        activeTab === 'event' && event
+          ? event.body
+          : 'Review portfolio health, allocate funding, combat corruption, and upgrade institutional capacity.'
+      }
       footer={
-        <span className="modal-footnote">
-          Events do not cost actions. Every choice applies immediately.
-        </span>
+        <>
+          <span className="modal-footnote">
+            {activeTab === 'event'
+              ? `${resolvedCount} of ${totalEvents} event${totalEvents === 1 ? '' : 's'} resolved. Decisions apply immediately.`
+              : `${game.actionsLeft} action${game.actionsLeft === 1 ? '' : 's'} available · Treasury ${formatMoney(player.stats.treasury)}`}
+          </span>
+          <div className="briefing-footer-actions" style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+            <button
+              type="button"
+              className={`btn btn-sm ${activeTab === 'event' ? 'btn-ghost' : 'btn-secondary'}`}
+              onClick={() => setActiveTab('event')}
+            >
+              <Icon name="Dice5" size={14} />
+              Turn Events
+            </button>
+            <button
+              type="button"
+              className={`btn btn-sm ${activeTab === 'history' ? 'btn-ghost' : 'btn-secondary'}`}
+              onClick={() => setActiveTab('history')}
+            >
+              <Icon name="ScrollText" size={14} />
+              Event History ({allHistory.length})
+            </button>
+            <button
+              type="button"
+              className={`btn btn-sm ${activeTab === 'ministries' ? 'btn-ghost' : 'btn-secondary'}`}
+              onClick={() => setActiveTab('ministries')}
+            >
+              <Icon name="Landmark" size={14} />
+              Ministries
+            </button>
+            <button
+              type="button"
+              className="btn btn-sm btn-primary"
+              onClick={handleResolveAndProceed}
+            >
+              <Icon name="Check" size={14} />
+              {allEventsResolved ? 'Proceed to Turn' : `Resolve & Proceed (${resolvedCount}/${totalEvents})`}
+            </button>
+          </div>
+        </>
       }
     >
-      <div className="event-choices">
-        {event.choices.map((choice) => (
-          <button
-            key={choice.id}
-            type="button"
-            className={`event-choice choice-${choice.tone ?? 'default'}`}
-            onClick={() => {
-              playSfx('click')
-              resolveEvent(choice.id)
-            }}
-          >
-            <span className="event-choice-main">
-              <span className="event-choice-label">{choice.label}</span>
-              <span className="event-choice-description">{choice.description}</span>
-            </span>
-            {choice.check ? (
-              <span className="event-choice-check">
-                <Icon name="Dices" size={14} />d{choice.check.die} &gt; {choice.check.dc}
-              </span>
-            ) : (
-              <Icon name="ChevronRight" size={18} className="choice-arrow" />
-            )}
-          </button>
-        ))}
+      <div className="briefing-tabs">
+        <button
+          type="button"
+          className={`briefing-tab-btn ${activeTab === 'event' ? 'is-active' : ''}`}
+          onClick={() => setActiveTab('event')}
+        >
+          <Icon name="Dice5" size={15} />
+          <span>Turn Events ({totalEvents})</span>
+          {allEventsResolved ? (
+            <Badge tone="positive" icon="Check">
+              All Resolved
+            </Badge>
+          ) : (
+            <Badge tone="warning" icon="AlertCircle">
+              {totalEvents - resolvedCount} Action Required
+            </Badge>
+          )}
+        </button>
+        <button
+          type="button"
+          className={`briefing-tab-btn ${activeTab === 'history' ? 'is-active' : ''}`}
+          onClick={() => setActiveTab('history')}
+        >
+          <Icon name="ScrollText" size={15} />
+          <span>Event History ({allHistory.length})</span>
+        </button>
+        <button
+          type="button"
+          className={`briefing-tab-btn ${activeTab === 'ministries' ? 'is-active' : ''}`}
+          onClick={() => setActiveTab('ministries')}
+        >
+          <Icon name="Landmark" size={15} />
+          <span>Cabinet & Ministries ({MINISTRIES.length})</span>
+        </button>
       </div>
+
+      {activeTab === 'history' ? (
+        <div className="briefing-history-pane">
+          <div className="history-turn-filter">
+            <span style={{ fontSize: '0.72rem', color: 'var(--muted)', marginRight: '6px' }}>Filter Turn:</span>
+            <button
+              type="button"
+              className={`history-filter-pill ${historyTurnFilter === 'all' ? 'is-active' : ''}`}
+              onClick={() => setHistoryTurnFilter('all')}
+            >
+              All Turns ({allHistory.length})
+            </button>
+            {historyTurns.map((t) => (
+              <button
+                key={t}
+                type="button"
+                className={`history-filter-pill ${historyTurnFilter === t ? 'is-active' : ''}`}
+                onClick={() => setHistoryTurnFilter(t)}
+              >
+                Turn {t} ({allHistory.filter((h) => h.turn === t).length})
+              </button>
+            ))}
+          </div>
+
+          {filteredHistory.length === 0 ? (
+            <div className="empty-state" style={{ padding: '32px 0', textAlign: 'center', color: 'var(--muted)' }}>
+              <span style={{ opacity: 0.5, display: 'inline-block', marginBottom: '8px' }}>
+                <Icon name="ScrollText" size={28} />
+              </span>
+              <p>No event decisions recorded yet for this filter.</p>
+              <span style={{ fontSize: '0.72rem', color: 'var(--faint)' }}>
+                Decisions taken during turn briefings are stored with full before and after metrics.
+              </span>
+            </div>
+          ) : (
+            <div className="history-list">
+              {filteredHistory.slice().reverse().map((rec) => (
+                <div key={rec.id} className="history-event-card">
+                  <div className="history-event-head">
+                    <div className="history-event-title-wrap">
+                      <Badge tone="accent">Turn {rec.turn}</Badge>
+                      {rec.rarity && (
+                        <Badge
+                          tone={
+                            rec.rarity === 'legendary'
+                              ? 'warning'
+                              : rec.rarity === 'epic'
+                                ? 'positive'
+                                : rec.rarity === 'rare'
+                                  ? 'accent'
+                                  : 'muted'
+                          }
+                        >
+                          {titleCase(rec.rarity)}
+                        </Badge>
+                      )}
+                      {rec.ministryId && (
+                        <Badge tone="neutral">
+                          {titleCase(rec.ministryId)}
+                        </Badge>
+                      )}
+                      <h4>{rec.title}</h4>
+                    </div>
+                    <span className="history-choice-badge">
+                      <Icon name="CheckCircle2" size={13} />
+                      <strong>{rec.choiceLabel}</strong>
+                    </span>
+                  </div>
+
+                  <p style={{ fontSize: '0.74rem', color: 'var(--muted)', margin: '4px 0' }}>
+                    {rec.body}
+                  </p>
+
+                  <EventStatDiffView before={rec.before} after={rec.after} />
+
+                  <div className="event-outcome-lines" style={{ marginTop: '4px' }}>
+                    {rec.lines.map((line: string, idx: number) => (
+                      <span key={idx}>• {line}</span>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      ) : activeTab === 'event' ? (
+        <div className="briefing-event-pane">
+          {totalEvents > 1 && (
+            <div className="briefing-pagination">
+              <button
+                type="button"
+                className="btn btn-tiny briefing-page-nav"
+                disabled={validIndex <= 0}
+                onClick={() => setEventIndex((i) => Math.max(0, i - 1))}
+                title="Previous event"
+              >
+                <Icon name="ChevronLeft" size={13} /> Prev
+              </button>
+              <div className="briefing-pills">
+                {turnEventIds.map((id, idx) => {
+                  const ev = id ? resolveEventForGame(game, id) : null
+                  const isDone = Boolean(id && (resolvedOutcomes[id] || !game.eventQueue.includes(id)))
+                  const shortTitle = ev ? ev.title.split(':')[0] : `Event ${idx + 1}`
+                  return (
+                    <button
+                      key={id}
+                      type="button"
+                      className={`briefing-pill ${idx === validIndex ? 'is-active' : ''} ${isDone ? 'is-done' : ''}`}
+                      onClick={() => setEventIndex(idx)}
+                    >
+                      {isDone ? <Icon name="Check" size={12} /> : null}
+                      <span>{idx + 1}. {shortTitle}</span>
+                    </button>
+                  )
+                })}
+              </div>
+              <button
+                type="button"
+                className="btn btn-tiny briefing-page-nav"
+                disabled={validIndex >= totalEvents - 1}
+                onClick={() => setEventIndex((i) => Math.min(totalEvents - 1, i + 1))}
+                title="Next event"
+              >
+                Next <Icon name="ChevronRight" size={13} />
+              </button>
+              <span className="briefing-page-counter">
+                {validIndex + 1} of {totalEvents} ({resolvedCount} resolved)
+              </span>
+            </div>
+          )}
+
+          {event?.ministryId && (
+            <div className="briefing-header-badges">
+              <Badge tone="neutral" icon="Landmark">
+                {titleCase(event.ministryId)} Ministry
+              </Badge>
+              {categoryLabel && (
+                <Badge
+                  tone={
+                    event.ministryCategory === 'improvement' || event.ministryCategory === 'upgrade'
+                      ? 'positive'
+                      : 'negative'
+                  }
+                  icon={event.ministryCategory === 'improvement' ? 'TrendingUp' : 'AlertTriangle'}
+                >
+                  {categoryLabel}
+                </Badge>
+              )}
+            </div>
+          )}
+
+          {isCurrentResolved && (currentOutcome || historyMatch) && (
+            <div className={`event-outcome-card tone-${currentOutcome?.tone ?? historyMatch?.tone ?? 'positive'}`}>
+              <div className="event-outcome-title">
+                <Icon
+                  name={(currentOutcome?.tone ?? historyMatch?.tone) === 'positive' ? 'Check' : 'Info'}
+                  size={16}
+                />
+                <span>Resolution: {currentOutcome?.title ?? historyMatch?.title}</span>
+                {historyMatch && (
+                  <span className="history-choice-badge" style={{ marginLeft: 'auto' }}>
+                    Decision: {historyMatch.choiceLabel}
+                  </span>
+                )}
+              </div>
+              {historyMatch && (
+                <EventStatDiffView before={historyMatch.before} after={historyMatch.after} />
+              )}
+              <div className="event-outcome-lines">
+                {(currentOutcome?.lines ?? historyMatch?.lines ?? []).map((line: string, idx: number) => (
+                  <span key={idx}>• {line}</span>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {!isCurrentResolved && event && (
+            <div className="event-choices">
+              {event.choices.map((choice) => (
+                <button
+                  key={choice.id}
+                  type="button"
+                  className={`event-choice choice-${choice.tone ?? 'default'}`}
+                  onClick={() => handleChoose(choice.id)}
+                >
+                  <span className="event-choice-main">
+                    <span className="event-choice-label">{choice.label}</span>
+                    <span className="event-choice-description">{choice.description}</span>
+                  </span>
+                  {choice.check ? (
+                    <span className="event-choice-check">
+                      <Icon name="Dices" size={14} />
+                      d{choice.check.die} &gt; {choice.check.dc}
+                    </span>
+                  ) : (
+                    <Icon name="ChevronRight" size={18} className="choice-arrow" />
+                  )}
+                </button>
+              ))}
+            </div>
+          )}
+
+          {totalEvents > 1 && validIndex < totalEvents - 1 && isCurrentResolved && (
+            <div style={{ marginTop: '14px', display: 'flex', justifyContent: 'flex-end' }}>
+              <button
+                type="button"
+                className="btn btn-sm btn-ghost"
+                onClick={() => setEventIndex((i) => Math.min(totalEvents - 1, i + 1))}
+              >
+                <span>Go to Event {validIndex + 2}</span>
+                <Icon name="ChevronRight" size={14} />
+              </button>
+            </div>
+          )}
+        </div>
+      ) : (
+        <div className="briefing-ministries-pane">
+          <div className="briefing-cabinet-meta">
+            <div>
+              <strong>Cabinet Governance</strong>
+              <span className="text-muted" style={{ marginLeft: '8px' }}>
+                Average Corruption: {formatPercent(averageCorruption(player))}
+              </span>
+            </div>
+            <div>
+              <span className="text-muted">Treasury: </span>
+              <strong>{formatMoney(player.stats.treasury)}</strong>
+              <span className="text-muted" style={{ marginLeft: '12px' }}>Actions: </span>
+              <strong>{game.actionsLeft}/10</strong>
+            </div>
+          </div>
+
+          <div className="briefing-ministry-grid">
+            {MINISTRIES.map((ministry) => {
+              const entry = player.ministries[ministry.id]
+              const tier = entry.level ?? 1
+              const replaceCost = Math.max(25, player.stats.gdp * 0.0015)
+              const auditCost = Math.max(15, player.stats.gdp * 0.0008)
+              const upgradeCost = Math.max(40, player.stats.gdp * 0.0025 * tier)
+              const trainCost = Math.max(20, player.stats.gdp * 0.001)
+              const turnCost = player.stats.gdp * (MINISTRY_COST_FACTORS[entry.budget] ?? 0.008)
+
+              return (
+                <div
+                  key={ministry.id}
+                  className={`briefing-ministry-card ${entry.budget === 'low' ? 'is-underfunded' : ''} ${entry.head.corruption > 55 ? 'is-corrupt' : ''}`}
+                >
+                  <div className="briefing-ministry-head">
+                    <span className="ministry-icon">
+                      <Icon name={ministry.icon} size={18} />
+                    </span>
+                    <div className="briefing-ministry-info">
+                      <h4>{ministry.name.replace('Ministry of ', '')}</h4>
+                      <span>Tier {tier}/5 · {formatMoney(turnCost)}/turn</span>
+                    </div>
+                    <Badge
+                      tone={
+                        entry.budget === 'high'
+                          ? 'positive'
+                          : entry.budget === 'low'
+                            ? 'negative'
+                            : 'muted'
+                      }
+                    >
+                      {entry.budget}
+                    </Badge>
+                  </div>
+
+                  <div className="minister-row">
+                    <div className="minister-avatar">{entry.head.name.slice(0, 2).toUpperCase()}</div>
+                    <div className="minister-copy">
+                      <strong>{entry.head.name}</strong>
+                      <span>
+                        Skill {entry.head.skill} · Loyalty {entry.head.loyalty}
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="minister-bars">
+                    <ProgressBar
+                      label="Corruption"
+                      value={entry.head.corruption}
+                      tone={entry.head.corruption > 55 ? 'negative' : 'warning'}
+                      thin
+                      valueLabel={`${entry.head.corruption}`}
+                    />
+                    <ProgressBar
+                      label="Loyalty"
+                      value={entry.head.loyalty}
+                      tone={entry.head.loyalty < 35 ? 'negative' : 'positive'}
+                      thin
+                      valueLabel={`${entry.head.loyalty}`}
+                    />
+                  </div>
+
+                  <div className="ministry-budget">
+                    <div className="segmented segmented-small budget-segmented" style={{ width: '100%' }}>
+                      {BUDGET_LEVELS.map((level) => (
+                        <button
+                          key={level.id}
+                          type="button"
+                          className={entry.budget === level.id ? 'is-active' : ''}
+                          onClick={() => setMinistryBudget(ministry.id, level.id)}
+                          disabled={game.actionsLeft < 1}
+                          aria-pressed={entry.budget === level.id}
+                        >
+                          {level.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="briefing-actions-row">
+                    <button
+                      type="button"
+                      className="briefing-action-btn"
+                      onClick={() => auditMinister(ministry.id)}
+                      disabled={game.actionsLeft < 1 || player.stats.treasury < auditCost || entry.head.corruption === 0}
+                      title={`Audit minister corruption (-20) · ${formatMoney(auditCost)} · 1 action`}
+                    >
+                      <Icon name="Search" size={13} />
+                      <span>Audit</span>
+                      <span className="cost">{formatMoney(auditCost)}</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      className="briefing-action-btn"
+                      onClick={() => upgradeMinistry(ministry.id)}
+                      disabled={game.actionsLeft < 1 || player.stats.treasury < upgradeCost || tier >= 5}
+                      title={`Upgrade ministry tier (+1 Tier, +6 Skill) · ${formatMoney(upgradeCost)} · 1 action`}
+                    >
+                      <Icon name="ArrowUpCircle" size={13} />
+                      <span>Upgrade</span>
+                      <span className="cost">{formatMoney(upgradeCost)}</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      className="briefing-action-btn"
+                      onClick={() => trainMinister(ministry.id)}
+                      disabled={game.actionsLeft < 1 || player.stats.treasury < trainCost || (entry.head.skill >= 100 && entry.head.loyalty >= 100)}
+                      title={`Train minister (+12 Skill, +10 Loyalty) · ${formatMoney(trainCost)} · 1 action`}
+                    >
+                      <Icon name="GraduationCap" size={13} />
+                      <span>Train</span>
+                      <span className="cost">{formatMoney(trainCost)}</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      className="briefing-action-btn"
+                      onClick={() => replaceMinister(ministry.id)}
+                      disabled={game.actionsLeft < 1 || player.stats.treasury < replaceCost}
+                      title={`Appoint new minister · ${formatMoney(replaceCost)} · 1 action`}
+                    >
+                      <Icon name="UserX" size={13} />
+                      <span>Replace</span>
+                      <span className="cost">{formatMoney(replaceCost)}</span>
+                    </button>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      )}
     </ModalShell>
   )
 }
@@ -708,9 +1370,13 @@ function CheckModal({ check }: { check: PendingCheck }) {
     check.kind === 'war'
       ? `Victory chance ${check.winChance ?? 50}% on a d100`
       : check.operation === 'research'
-        ? 'Single d10: 1 fail · 2–4 +5% bonus · 5–9 +10% bonus · 10 +20% & advancement'
+        ? check.hasAllAdvancements
+          ? 'Single d10 (Mastery): 1 fail · 2–4 +10% bonus · 5–9 +20% bonus · 10 +35% & master reward'
+          : 'Single d10: 1 fail · 2–4 +5% bonus · 5–9 +10% bonus · 10 +20% & advancement'
         : check.kind === 'industry'
-          ? 'd6: 1 fail · 2 small · 3 avg · 4–5 good · 6 advancement'
+          ? check.hasAllAdvancements
+            ? 'd6 (Mastery): 1 fail · 2 boosted · 3 enhanced · 4–5 rich · 6 master reward'
+            : 'd6: 1 fail · 2 small · 3 avg · 4–5 good · 6 advancement'
           : `${dieLabel} > ${check.dc}${check.modifier !== 0 ? ` + ${check.modifier}` : ''}`
 
   return (
@@ -771,19 +1437,31 @@ function CheckModal({ check }: { check: PendingCheck }) {
                     : 'Defeat'
                   : check.operation === 'research'
                     ? check.roll === 10
-                      ? 'Breakthrough advancement (+20%)'
+                      ? check.hasAllAdvancements
+                        ? 'Master breakthrough (+35%)'
+                        : 'Breakthrough advancement (+20%)'
                       : check.success
-                        ? 'Research bonus'
+                        ? check.hasAllAdvancements
+                          ? 'Enhanced research bonus'
+                          : 'Research bonus'
                         : 'Failure'
                     : check.kind === 'industry'
                       ? check.roll === 6
-                        ? 'Breakthrough advancement'
+                        ? check.hasAllAdvancements
+                          ? 'Master breakthrough'
+                          : 'Breakthrough advancement'
                         : check.roll === 4 || check.roll === 5
-                          ? 'Good improvement'
+                          ? check.hasAllAdvancements
+                            ? 'Rich improvement (Mastery)'
+                            : 'Good improvement'
                           : check.roll === 3
-                            ? 'Average improvement'
+                            ? check.hasAllAdvancements
+                              ? 'Enhanced improvement (Mastery)'
+                              : 'Average improvement'
                             : check.roll === 2
-                              ? 'Small improvement'
+                              ? check.hasAllAdvancements
+                                ? 'Boosted improvement (Mastery)'
+                                : 'Small improvement'
                               : 'Failure'
                       : check.success
                         ? 'Success'
@@ -808,7 +1486,7 @@ function CheckModal({ check }: { check: PendingCheck }) {
 
       {check.outcomeLines && check.outcomeLines.length > 0 && (
         <div className="check-outcomes">
-          {check.outcomeLines.map((line, index) => (
+          {check.outcomeLines.map((line: string, index: number) => (
             <p key={`${line}-${index}`}>
               <Icon name="ChevronRight" size={13} /> {line}
             </p>
@@ -843,7 +1521,7 @@ function ResultModal({
     >
       <div className={`result-panel result-${modal.tone}`}>
         <ul>
-          {modal.lines.map((line, index) => (
+          {modal.lines.map((line: string, index: number) => (
             <li key={`${line}-${index}`}>{line}</li>
           ))}
         </ul>
@@ -901,6 +1579,7 @@ export function ModalHost() {
     if (modal.kind === 'check') return <CheckModal check={modal.check} />
     if (modal.kind === 'result') return <ResultModal modal={modal} onClose={closeModal} />
     if (modal.kind === 'new-game') return <NewGameModal />
+    if (modal.kind === 'turn-briefing') return <EventModal eventId={modal.eventId ?? eventId ?? undefined} />
   }
   if (eventId) return <EventModal eventId={eventId} />
   return null

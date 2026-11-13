@@ -6,6 +6,7 @@ import {
   FIRST_NAMES,
   LAST_NAMES,
   RESOURCE_BY_ID,
+  RESOURCE_IDS,
   SAVE_KEY,
   SAVE_VERSION,
   TRADE_PRICING,
@@ -14,7 +15,10 @@ import {
 import type {
   AutoDealMode,
   Country,
+  EventChoice,
+  EventHistoryRecord,
   EventOutcome,
+  EventStatSnapshot,
   GameSettings,
   GameState,
   IndustryAction,
@@ -45,7 +49,7 @@ import {
   militaryPower,
   resourceFlows,
 } from '../game/selectors'
-import { EVENT_BY_ID, applyEventEffects } from '../game/events'
+import { EVENT_BY_ID, applyEventEffects, resolveEventForGame } from '../game/events'
 import { formatMoney, formatQuantity, titleCase } from '../game/format'
 
 interface GameStore {
@@ -60,6 +64,7 @@ interface GameStore {
   setPage: (page: PageId) => void
   openCountry: (countryId: string) => void
   closeModal: () => void
+  openTurnBriefing: () => void
   clearToast: () => void
   endTurn: () => void
 
@@ -68,7 +73,9 @@ interface GameStore {
   adjustDebt: (delta: number) => void
   setMinistryBudget: (id: MinistryId, budget: BudgetLevel) => void
   replaceMinister: (id: MinistryId) => void
-
+  auditMinister: (id: MinistryId) => void
+  upgradeMinistry: (id: MinistryId) => void
+  trainMinister: (id: MinistryId) => void
   beginIndustry: (resourceId: ResourceId, action: IndustryAction) => void
   rollCheck: () => void
   rollBreakthrough: () => void
@@ -91,7 +98,7 @@ interface GameStore {
   mergeCountry: (countryId: string) => void
   beginWar: (countryId: string) => void
 
-  resolveEvent: (choiceId: string) => void
+  resolveEvent: (choiceId: string, targetEventId?: string, showResultModal?: boolean) => void
 }
 
 const makeId = (prefix: string): string =>
@@ -171,6 +178,11 @@ export const useGame = create<GameStore>()(
 
       closeModal: () => set({ modal: null }),
 
+      openTurnBriefing: () => {
+        const game = get().game
+        if (!game) return
+        set({ modal: { kind: 'turn-briefing', eventId: game.eventQueue[0] } })
+      },
       clearToast: () => set({ toast: null }),
 
       endTurn: () => {
@@ -356,6 +368,110 @@ export const useGame = create<GameStore>()(
         )
       },
 
+      auditMinister: (id) => {
+        const current = get().game
+        if (!current) return
+        const game = cloneGame(current)
+        const player = getPlayer(game)
+        const error = checkActionBudget(game, 1)
+        if (error) {
+          announce(set, error, 'negative')
+          return
+        }
+        const cost = Math.max(15, player.stats.gdp * 0.0008)
+        if (player.stats.treasury < cost) {
+          announce(set, `Need ${formatMoney(cost)} for an official anti-corruption audit.`, 'negative')
+          return
+        }
+        const min = player.ministries[id]
+        const prevCorr = min.head.corruption
+        min.head.corruption = Math.max(0, min.head.corruption - 20)
+        if (prevCorr > 50) {
+          min.head.loyalty = clamp(min.head.loyalty - 5, 0, 100)
+        } else {
+          min.head.loyalty = clamp(min.head.loyalty + 4, 0, 100)
+        }
+        player.stats.corruption = clamp(player.stats.corruption - 1.5, 0, 100)
+        player.stats.treasury -= cost
+        game.actionsLeft -= 1
+        pushLog(
+          game,
+          'governance',
+          `Anti-corruption audit completed at the ${titleCase(id)} ministry. Minister corruption dropped from ${prevCorr} to ${min.head.corruption}.`,
+          player,
+          'positive',
+        )
+        set({ game })
+        announce(set, `${titleCase(id)} audit completed: corruption −20.`, 'positive')
+      },
+
+      upgradeMinistry: (id) => {
+        const current = get().game
+        if (!current) return
+        const game = cloneGame(current)
+        const player = getPlayer(game)
+        const error = checkActionBudget(game, 1)
+        if (error) {
+          announce(set, error, 'negative')
+          return
+        }
+        const min = player.ministries[id]
+        const currentLevel = min.level ?? 1
+        if (currentLevel >= 5) {
+          announce(set, `${titleCase(id)} ministry is already at maximum Tier 5.`, 'neutral')
+          return
+        }
+        const cost = Math.max(40, player.stats.gdp * 0.0025 * currentLevel)
+        if (player.stats.treasury < cost) {
+          announce(set, `Need ${formatMoney(cost)} to upgrade ${titleCase(id)} ministry to Tier ${currentLevel + 1}.`, 'negative')
+          return
+        }
+        min.level = currentLevel + 1
+        min.head.skill = clamp(min.head.skill + 6, 0, 100)
+        player.stats.gdp = Math.max(100, roundTo(player.stats.gdp * 1.003, 1))
+        player.stats.treasury -= cost
+        game.actionsLeft -= 1
+        pushLog(
+          game,
+          'governance',
+          `${titleCase(id)} ministry upgraded to Tier ${min.level}. Institutional capacity expanded; GDP +0.3%.`,
+          player,
+          'positive',
+        )
+        set({ game })
+        announce(set, `${titleCase(id)} upgraded to Tier ${min.level}!`, 'positive')
+      },
+
+      trainMinister: (id) => {
+        const current = get().game
+        if (!current) return
+        const game = cloneGame(current)
+        const player = getPlayer(game)
+        const error = checkActionBudget(game, 1)
+        if (error) {
+          announce(set, error, 'negative')
+          return
+        }
+        const cost = Math.max(20, player.stats.gdp * 0.001)
+        if (player.stats.treasury < cost) {
+          announce(set, `Need ${formatMoney(cost)} for executive leadership training.`, 'negative')
+          return
+        }
+        const min = player.ministries[id]
+        min.head.skill = clamp(min.head.skill + 12, 0, 100)
+        min.head.loyalty = clamp(min.head.loyalty + 10, 0, 100)
+        player.stats.treasury -= cost
+        game.actionsLeft -= 1
+        pushLog(
+          game,
+          'governance',
+          `Leadership training completed for ${min.head.name} at ${titleCase(id)}: skill +12, loyalty +10.`,
+          player,
+          'positive',
+        )
+        set({ game })
+        announce(set, `${min.head.name} completed executive training.`, 'positive')
+      },
       beginIndustry: (resourceId, action) => {
         const current = get().game
         if (!current) return
@@ -377,12 +493,24 @@ export const useGame = create<GameStore>()(
         const die = action === 'research' ? 10 : 6
         const dc = 1
         const resource = RESOURCE_BY_ID[resourceId]
-        const descriptions: Record<IndustryAction, string> = {
-          prospect: `Survey new fields for ${resource.name.toLowerCase()} reserves on a d6: 1 is failure, 2 small, 3 average, 4–5 good discovery, 6 discovery with an advancement.`,
-          extraction: `Upgrade ${resource.name.toLowerCase()} extraction facility on a d6: 1 is failure, 2 small (+1 Lv), 3 average (+2 Lv), 4–5 good (+3 Lv), 6 upgrade with an advancement.`,
-          refinement: `Upgrade ${resource.name.toLowerCase()} refining facility on a d6: 1 is failure, 2 small (+1 Lv), 3 average (+2 Lv), 4–5 good (+3 Lv), 6 upgrade with an advancement.`,
-          research: `Fund a research stimulus for ${resource.name.toLowerCase()} on a single d10: 1 is failure, 2–4 grants +5% bonus on extraction and refinement, 5–9 grants +10% bonus, 10 grants +20% bonus with an advancement.`,
-        }
+        const allAdvancementsUnlocked = RESOURCE_IDS.every(
+          (id) => (player.resources[id]?.advances ?? 0) >= 5,
+        )
+        const state = player.resources[resourceId]
+        const hasAllAdvancements = (state?.advances ?? 0) >= 5 || allAdvancementsUnlocked
+        const descriptions: Record<IndustryAction, string> = hasAllAdvancements
+          ? {
+              prospect: `Survey new fields for ${resource.name.toLowerCase()} with Advancement Mastery: 1 fail, 2 modest boost (+stock), 3 solid boost (+stock), 4–5 rich boost (+stock), 6 master discovery (+massive reserves & stock).`,
+              extraction: `Upgrade ${resource.name.toLowerCase()} extraction with Advancement Mastery: 1 fail, 2 (+2 Lv), 3 (+4 Lv), 4–5 (+5 Lv), 6 (+6 Lv & master reward).`,
+              refinement: `Upgrade ${resource.name.toLowerCase()} refining with Advancement Mastery: 1 fail, 2 (+2 Lv), 3 (+4 Lv), 4–5 (+5 Lv), 6 (+6 Lv & master reward).`,
+              research: `Fund research stimulus with Advancement Mastery: 1 fail, 2–4 (+10% bonus), 5–9 (+20% bonus), 10 (+35% bonus & master grant).`,
+            }
+          : {
+              prospect: `Survey new fields for ${resource.name.toLowerCase()} reserves on a d6: 1 is failure, 2 small, 3 average, 4–5 good discovery, 6 discovery with an advancement.`,
+              extraction: `Upgrade ${resource.name.toLowerCase()} extraction facility on a d6: 1 is failure, 2 small (+1 Lv), 3 average (+2 Lv), 4–5 good (+3 Lv), 6 upgrade with an advancement.`,
+              refinement: `Upgrade ${resource.name.toLowerCase()} refining facility on a d6: 1 is failure, 2 small (+1 Lv), 3 average (+2 Lv), 4–5 good (+3 Lv), 6 upgrade with an advancement.`,
+              research: `Fund a research stimulus for ${resource.name.toLowerCase()} on a single d10: 1 is failure, 2–4 grants +5% bonus on extraction and refinement, 5–9 grants +10% bonus, 10 grants +20% bonus with an advancement.`,
+            }
         set({
           modal: {
             kind: 'check',
@@ -398,6 +526,7 @@ export const useGame = create<GameStore>()(
               resource: resourceId,
               operation: action,
               stage: 'ready',
+              hasAllAdvancements,
             },
           },
         })
@@ -436,8 +565,15 @@ export const useGame = create<GameStore>()(
         if (check.kind === 'industry' && check.resource && check.operation) {
           const resource = player.resources[check.resource]
           const def = RESOURCE_BY_ID[check.resource]
+          const allAdvancementsUnlocked = RESOURCE_IDS.every(
+            (id) => (player.resources[id]?.advances ?? 0) >= 5,
+          )
+          const hasAllAdvancements =
+            check.hasAllAdvancements || (resource.advances ?? 0) >= 5 || allAdvancementsUnlocked
 
           const awardAdvancement = () => {
+            player.stats.gdp = Math.max(100, roundTo(player.stats.gdp * 1.008, 1))
+            outcomeLines.push('Breakthrough advancement: National GDP expanded by +0.8%!')
             if (resource.advances < 5) {
               resource.advances += 1
               resource.stock += def.capacityPerLevel * 3
@@ -453,8 +589,19 @@ export const useGame = create<GameStore>()(
                 'positive',
               )
             } else {
+              const bonusReserves = roundTo(def.capacityPerLevel * 50, 1)
+              const bonusStock = roundTo(def.capacityPerLevel * 15, 1)
+              resource.reserves += bonusReserves
+              resource.stock += bonusStock
               outcomeLines.push(
-                `Maximum major advancements (5/5) already unlocked for ${def.name}.`,
+                `Master breakthrough reward (all advancements unlocked): +${formatQuantity(bonusReserves)} ${def.unit} reserves and +${formatQuantity(bonusStock)} ${def.unit} stockpile!`,
+              )
+              pushLog(
+                game,
+                'industry',
+                `Master breakthrough on ${def.name} in ${player.name}: +${formatQuantity(bonusReserves)} reserves and +${formatQuantity(bonusStock)} stock.`,
+                player,
+                'positive',
               )
             }
           }
@@ -468,38 +615,84 @@ export const useGame = create<GameStore>()(
               )
             } else if (roll === 2) {
               success = true
-              const found = roundTo(def.capacityPerLevel * rng.float(25, 45) * (1 + reservesMod), 1)
-              resource.reserves += found
-              outcomeLines.push(
-                `Small improvement (d6 rolled 2): Discovered modest reserves (+${formatQuantity(found)} ${def.unit}).`,
+              const found = roundTo(
+                def.capacityPerLevel *
+                  (hasAllAdvancements ? rng.float(50, 90) : rng.float(25, 45)) *
+                  (1 + reservesMod),
+                1,
               )
+              resource.reserves += found
+              if (hasAllAdvancements) {
+                const bonusStock = roundTo(def.capacityPerLevel * 2, 1)
+                resource.stock += bonusStock
+                outcomeLines.push(
+                  `Small improvement with Mastery (d6 rolled 2): Discovered modest reserves (+${formatQuantity(found)} ${def.unit}) and strategic stockpile (+${formatQuantity(bonusStock)} ${def.unit}).`,
+                )
+              } else {
+                outcomeLines.push(
+                  `Small improvement (d6 rolled 2): Discovered modest reserves (+${formatQuantity(found)} ${def.unit}).`,
+                )
+              }
             } else if (roll === 3) {
               success = true
-              const found = roundTo(def.capacityPerLevel * rng.float(55, 80) * (1 + reservesMod), 1)
-              resource.reserves += found
-              outcomeLines.push(
-                `Average improvement (d6 rolled 3): Discovered solid reserves (+${formatQuantity(found)} ${def.unit}).`,
+              const found = roundTo(
+                def.capacityPerLevel *
+                  (hasAllAdvancements ? rng.float(110, 160) : rng.float(55, 80)) *
+                  (1 + reservesMod),
+                1,
               )
+              resource.reserves += found
+              if (hasAllAdvancements) {
+                const bonusStock = roundTo(def.capacityPerLevel * 4, 1)
+                resource.stock += bonusStock
+                outcomeLines.push(
+                  `Average improvement with Mastery (d6 rolled 3): Discovered solid reserves (+${formatQuantity(found)} ${def.unit}) and strategic stockpile (+${formatQuantity(bonusStock)} ${def.unit}).`,
+                )
+              } else {
+                outcomeLines.push(
+                  `Average improvement (d6 rolled 3): Discovered solid reserves (+${formatQuantity(found)} ${def.unit}).`,
+                )
+              }
             } else if (roll === 4 || roll === 5) {
               success = true
               const found = roundTo(
-                def.capacityPerLevel * rng.float(95, 140) * (1 + reservesMod),
+                def.capacityPerLevel *
+                  (hasAllAdvancements ? rng.float(190, 280) : rng.float(95, 140)) *
+                  (1 + reservesMod),
                 1,
               )
               resource.reserves += found
-              outcomeLines.push(
-                `Good improvement (d6 rolled ${roll}): Discovered rich reserves (+${formatQuantity(found)} ${def.unit}).`,
-              )
+              if (hasAllAdvancements) {
+                const bonusStock = roundTo(def.capacityPerLevel * 8, 1)
+                resource.stock += bonusStock
+                outcomeLines.push(
+                  `Good improvement with Mastery (d6 rolled ${roll}): Discovered rich reserves (+${formatQuantity(found)} ${def.unit}) and strategic stockpile (+${formatQuantity(bonusStock)} ${def.unit}).`,
+                )
+              } else {
+                outcomeLines.push(
+                  `Good improvement (d6 rolled ${roll}): Discovered rich reserves (+${formatQuantity(found)} ${def.unit}).`,
+                )
+              }
             } else if (roll === 6) {
               success = true
               const found = roundTo(
-                def.capacityPerLevel * rng.float(95, 140) * (1 + reservesMod),
+                def.capacityPerLevel *
+                  (hasAllAdvancements ? rng.float(220, 320) : rng.float(95, 140)) *
+                  (1 + reservesMod),
                 1,
               )
               resource.reserves += found
-              outcomeLines.push(
-                `Improvement with an advancement (d6 rolled 6): Discovered abundant reserves (+${formatQuantity(found)} ${def.unit})!`,
-              )
+              if (hasAllAdvancements) {
+                const bonusStock = roundTo(def.capacityPerLevel * 12, 1)
+                resource.stock += bonusStock
+                outcomeLines.push(
+                  `Master discovery (d6 rolled 6): Discovered abundant reserves (+${formatQuantity(found)} ${def.unit}) and strategic stockpile (+${formatQuantity(bonusStock)} ${def.unit})!`,
+                )
+              } else {
+                outcomeLines.push(
+                  `Improvement with an advancement (d6 rolled 6): Discovered abundant reserves (+${formatQuantity(found)} ${def.unit})!`,
+                )
+              }
               awardAdvancement()
             }
           } else if (check.operation === 'extraction') {
@@ -508,28 +701,64 @@ export const useGame = create<GameStore>()(
               outcomeLines.push('Extraction upgrade failed (d6 rolled 1). No capacity was added.')
             } else if (roll === 2) {
               success = true
-              resource.extractionLevel += 1
-              outcomeLines.push(
-                `Small improvement (d6 rolled 2): Extraction upgraded by +1 level (now Lv ${resource.extractionLevel}).`,
-              )
+              const levelGain = hasAllAdvancements ? 2 : 1
+              resource.extractionLevel += levelGain
+              if (hasAllAdvancements) {
+                const bonusStock = roundTo(def.capacityPerLevel * 2, 1)
+                resource.stock += bonusStock
+                outcomeLines.push(
+                  `Small improvement with Mastery (d6 rolled 2): Extraction upgraded by +${levelGain} levels (now Lv ${resource.extractionLevel}) plus +${formatQuantity(bonusStock)} ${def.unit} stockpile.`,
+                )
+              } else {
+                outcomeLines.push(
+                  `Small improvement (d6 rolled 2): Extraction upgraded by +1 level (now Lv ${resource.extractionLevel}).`,
+                )
+              }
             } else if (roll === 3) {
               success = true
-              resource.extractionLevel += 2
-              outcomeLines.push(
-                `Average improvement (d6 rolled 3): Extraction upgraded by +2 levels (now Lv ${resource.extractionLevel}).`,
-              )
+              const levelGain = hasAllAdvancements ? 4 : 2
+              resource.extractionLevel += levelGain
+              if (hasAllAdvancements) {
+                const bonusStock = roundTo(def.capacityPerLevel * 4, 1)
+                resource.stock += bonusStock
+                outcomeLines.push(
+                  `Average improvement with Mastery (d6 rolled 3): Extraction upgraded by +${levelGain} levels (now Lv ${resource.extractionLevel}) plus +${formatQuantity(bonusStock)} ${def.unit} stockpile.`,
+                )
+              } else {
+                outcomeLines.push(
+                  `Average improvement (d6 rolled 3): Extraction upgraded by +2 levels (now Lv ${resource.extractionLevel}).`,
+                )
+              }
             } else if (roll === 4 || roll === 5) {
               success = true
-              resource.extractionLevel += 3
-              outcomeLines.push(
-                `Good improvement (d6 rolled ${roll}): Extraction upgraded by +3 levels (now Lv ${resource.extractionLevel}).`,
-              )
+              const levelGain = hasAllAdvancements ? 5 : 3
+              resource.extractionLevel += levelGain
+              if (hasAllAdvancements) {
+                const bonusStock = roundTo(def.capacityPerLevel * 6, 1)
+                resource.stock += bonusStock
+                outcomeLines.push(
+                  `Good improvement with Mastery (d6 rolled ${roll}): Extraction upgraded by +${levelGain} levels (now Lv ${resource.extractionLevel}) plus +${formatQuantity(bonusStock)} ${def.unit} stockpile.`,
+                )
+              } else {
+                outcomeLines.push(
+                  `Good improvement (d6 rolled ${roll}): Extraction upgraded by +3 levels (now Lv ${resource.extractionLevel}).`,
+                )
+              }
             } else if (roll === 6) {
               success = true
-              resource.extractionLevel += 3
-              outcomeLines.push(
-                `Improvement with an advancement (d6 rolled 6): Extraction upgraded by +3 levels (now Lv ${resource.extractionLevel})!`,
-              )
+              const levelGain = hasAllAdvancements ? 6 : 3
+              resource.extractionLevel += levelGain
+              if (hasAllAdvancements) {
+                const bonusStock = roundTo(def.capacityPerLevel * 8, 1)
+                resource.stock += bonusStock
+                outcomeLines.push(
+                  `Master improvement (d6 rolled 6): Extraction upgraded by +${levelGain} levels (now Lv ${resource.extractionLevel}) plus +${formatQuantity(bonusStock)} ${def.unit} stockpile!`,
+                )
+              } else {
+                outcomeLines.push(
+                  `Improvement with an advancement (d6 rolled 6): Extraction upgraded by +3 levels (now Lv ${resource.extractionLevel})!`,
+                )
+              }
               awardAdvancement()
             }
           } else if (check.operation === 'refinement') {
@@ -538,28 +767,64 @@ export const useGame = create<GameStore>()(
               outcomeLines.push('Refinement upgrade failed (d6 rolled 1). No capacity was added.')
             } else if (roll === 2) {
               success = true
-              resource.refinementLevel += 1
-              outcomeLines.push(
-                `Small improvement (d6 rolled 2): Refinement upgraded by +1 level (now Lv ${resource.refinementLevel}).`,
-              )
+              const levelGain = hasAllAdvancements ? 2 : 1
+              resource.refinementLevel += levelGain
+              if (hasAllAdvancements) {
+                const bonusStock = roundTo(def.capacityPerLevel * 2, 1)
+                resource.stock += bonusStock
+                outcomeLines.push(
+                  `Small improvement with Mastery (d6 rolled 2): Refinement upgraded by +${levelGain} levels (now Lv ${resource.refinementLevel}) plus +${formatQuantity(bonusStock)} ${def.unit} stockpile.`,
+                )
+              } else {
+                outcomeLines.push(
+                  `Small improvement (d6 rolled 2): Refinement upgraded by +1 level (now Lv ${resource.refinementLevel}).`,
+                )
+              }
             } else if (roll === 3) {
               success = true
-              resource.refinementLevel += 2
-              outcomeLines.push(
-                `Average improvement (d6 rolled 3): Refinement upgraded by +2 levels (now Lv ${resource.refinementLevel}).`,
-              )
+              const levelGain = hasAllAdvancements ? 4 : 2
+              resource.refinementLevel += levelGain
+              if (hasAllAdvancements) {
+                const bonusStock = roundTo(def.capacityPerLevel * 4, 1)
+                resource.stock += bonusStock
+                outcomeLines.push(
+                  `Average improvement with Mastery (d6 rolled 3): Refinement upgraded by +${levelGain} levels (now Lv ${resource.refinementLevel}) plus +${formatQuantity(bonusStock)} ${def.unit} stockpile.`,
+                )
+              } else {
+                outcomeLines.push(
+                  `Average improvement (d6 rolled 3): Refinement upgraded by +2 levels (now Lv ${resource.refinementLevel}).`,
+                )
+              }
             } else if (roll === 4 || roll === 5) {
               success = true
-              resource.refinementLevel += 3
-              outcomeLines.push(
-                `Good improvement (d6 rolled ${roll}): Refinement upgraded by +3 levels (now Lv ${resource.refinementLevel}).`,
-              )
+              const levelGain = hasAllAdvancements ? 5 : 3
+              resource.refinementLevel += levelGain
+              if (hasAllAdvancements) {
+                const bonusStock = roundTo(def.capacityPerLevel * 6, 1)
+                resource.stock += bonusStock
+                outcomeLines.push(
+                  `Good improvement with Mastery (d6 rolled ${roll}): Refinement upgraded by +${levelGain} levels (now Lv ${resource.refinementLevel}) plus +${formatQuantity(bonusStock)} ${def.unit} stockpile.`,
+                )
+              } else {
+                outcomeLines.push(
+                  `Good improvement (d6 rolled ${roll}): Refinement upgraded by +3 levels (now Lv ${resource.refinementLevel}).`,
+                )
+              }
             } else if (roll === 6) {
               success = true
-              resource.refinementLevel += 3
-              outcomeLines.push(
-                `Improvement with an advancement (d6 rolled 6): Refinement upgraded by +3 levels (now Lv ${resource.refinementLevel})!`,
-              )
+              const levelGain = hasAllAdvancements ? 6 : 3
+              resource.refinementLevel += levelGain
+              if (hasAllAdvancements) {
+                const bonusStock = roundTo(def.capacityPerLevel * 8, 1)
+                resource.stock += bonusStock
+                outcomeLines.push(
+                  `Master improvement (d6 rolled 6): Refinement upgraded by +${levelGain} levels (now Lv ${resource.refinementLevel}) plus +${formatQuantity(bonusStock)} ${def.unit} stockpile!`,
+                )
+              } else {
+                outcomeLines.push(
+                  `Improvement with an advancement (d6 rolled 6): Refinement upgraded by +3 levels (now Lv ${resource.refinementLevel})!`,
+                )
+              }
               awardAdvancement()
             }
           } else if (check.operation === 'research') {
@@ -571,29 +836,58 @@ export const useGame = create<GameStore>()(
               )
             } else if (roll >= 2 && roll <= 4) {
               success = true
-              resource.researchBonus = roundTo(currentBonus + 0.05, 2)
-              resource.researchLevel += 1
-              outcomeLines.push(
-                `Research bonus (d10 rolled ${roll}): +5% bonus on ${def.name.toLowerCase()} extraction and refinement (total bonus: +${Math.round(resource.researchBonus * 100)}%).`,
-              )
+              const bonusGain = hasAllAdvancements ? 0.1 : 0.05
+              const levelGain = hasAllAdvancements ? 2 : 1
+              resource.researchBonus = roundTo(currentBonus + bonusGain, 2)
+              resource.researchLevel += levelGain
+              if (hasAllAdvancements) {
+                const bonusStock = roundTo(def.capacityPerLevel * 3, 1)
+                resource.stock += bonusStock
+                outcomeLines.push(
+                  `Research bonus with Mastery (d10 rolled ${roll}): +10% bonus on ${def.name.toLowerCase()} extraction and refinement (total bonus: +${Math.round(resource.researchBonus * 100)}%) plus +${formatQuantity(bonusStock)} ${def.unit} stockpile.`,
+                )
+              } else {
+                outcomeLines.push(
+                  `Research bonus (d10 rolled ${roll}): +5% bonus on ${def.name.toLowerCase()} extraction and refinement (total bonus: +${Math.round(resource.researchBonus * 100)}%).`,
+                )
+              }
             } else if (roll >= 5 && roll <= 9) {
               success = true
-              resource.researchBonus = roundTo(currentBonus + 0.1, 2)
-              resource.researchLevel += 1
-              outcomeLines.push(
-                `Research bonus (d10 rolled ${roll}): +10% bonus on ${def.name.toLowerCase()} extraction and refinement (total bonus: +${Math.round(resource.researchBonus * 100)}%).`,
-              )
+              const bonusGain = hasAllAdvancements ? 0.2 : 0.1
+              const levelGain = hasAllAdvancements ? 2 : 1
+              resource.researchBonus = roundTo(currentBonus + bonusGain, 2)
+              resource.researchLevel += levelGain
+              if (hasAllAdvancements) {
+                const bonusStock = roundTo(def.capacityPerLevel * 6, 1)
+                resource.stock += bonusStock
+                outcomeLines.push(
+                  `Research bonus with Mastery (d10 rolled ${roll}): +20% bonus on ${def.name.toLowerCase()} extraction and refinement (total bonus: +${Math.round(resource.researchBonus * 100)}%) plus +${formatQuantity(bonusStock)} ${def.unit} stockpile.`,
+                )
+              } else {
+                outcomeLines.push(
+                  `Research bonus (d10 rolled ${roll}): +10% bonus on ${def.name.toLowerCase()} extraction and refinement (total bonus: +${Math.round(resource.researchBonus * 100)}%).`,
+                )
+              }
             } else if (roll === 10) {
               success = true
-              resource.researchBonus = roundTo(currentBonus + 0.2, 2)
-              resource.researchLevel += 1
-              outcomeLines.push(
-                `Breakthrough research (d10 rolled 10): +20% bonus on ${def.name.toLowerCase()} extraction and refinement (total bonus: +${Math.round(resource.researchBonus * 100)}%) with an advancement!`,
-              )
+              const bonusGain = hasAllAdvancements ? 0.35 : 0.2
+              const levelGain = hasAllAdvancements ? 3 : 1
+              resource.researchBonus = roundTo(currentBonus + bonusGain, 2)
+              resource.researchLevel += levelGain
+              if (hasAllAdvancements) {
+                const bonusStock = roundTo(def.capacityPerLevel * 10, 1)
+                resource.stock += bonusStock
+                outcomeLines.push(
+                  `Master research breakthrough (d10 rolled 10): +35% bonus on ${def.name.toLowerCase()} extraction and refinement (total bonus: +${Math.round(resource.researchBonus * 100)}%) plus +${formatQuantity(bonusStock)} ${def.unit} stockpile!`,
+                )
+              } else {
+                outcomeLines.push(
+                  `Breakthrough research (d10 rolled 10): +20% bonus on ${def.name.toLowerCase()} extraction and refinement (total bonus: +${Math.round(resource.researchBonus * 100)}%) with an advancement!`,
+                )
+              }
               awardAdvancement()
             }
           }
-
           pushLog(
             game,
             'industry',
@@ -743,6 +1037,7 @@ export const useGame = create<GameStore>()(
           )
         }
         player.military[unitId] += qty
+        player.stats.gdp = Math.max(100, roundTo(player.stats.gdp * (1 + 0.0003 * Math.min(25, qty)), 1))
         game.actionsLeft -= 1
         pushLog(
           game,
@@ -1143,16 +1438,26 @@ export const useGame = create<GameStore>()(
         })
       },
 
-      resolveEvent: (choiceId) => {
+      resolveEvent: (choiceId, targetEventId, showResultModal = false) => {
         const current = get().game
         if (!current) return
-        const eventId = current.eventQueue[0]
+        const eventId = targetEventId ?? current.eventQueue[0]
         if (!eventId) return
-        const event = EVENT_BY_ID[eventId]
-        const choice = event?.choices.find((entry) => entry.id === choiceId)
+        const baseKey = eventId.split(':')[0] ?? eventId
+        const event = resolveEventForGame(current, eventId) ?? EVENT_BY_ID[baseKey]
+        const choice = event?.choices.find((entry: EventChoice) => entry.id === choiceId)
         if (!event || !choice) return
         const game = cloneGame(current)
         const player = getPlayer(game)
+        const beforeStats: EventStatSnapshot = {
+          treasury: player.stats.treasury,
+          debt: player.stats.debt,
+          gdp: player.stats.gdp,
+          approval: player.stats.approval,
+          hdi: player.stats.hdi,
+          security: player.stats.security,
+          corruption: player.stats.corruption,
+        }
         const rng = new RNG(game.rngState)
         const roll = choice.check ? rng.dice(choice.check.die) : undefined
         const success = choice.check ? (roll as number) > choice.check.dc : undefined
@@ -1173,7 +1478,7 @@ export const useGame = create<GameStore>()(
             ),
           )
         }
-        game.eventQueue.shift()
+        game.eventQueue = game.eventQueue.filter((id) => id !== eventId)
         if (!game.seenEvents.includes(eventId)) game.seenEvents.push(eventId)
         game.lastOutcome = {
           eventId,
@@ -1184,6 +1489,38 @@ export const useGame = create<GameStore>()(
           success,
           tone: success === false ? 'negative' : choice.tone === 'danger' ? 'negative' : 'positive',
         } satisfies EventOutcome
+
+        const afterStats: EventStatSnapshot = {
+          treasury: player.stats.treasury,
+          debt: player.stats.debt,
+          gdp: player.stats.gdp,
+          approval: player.stats.approval,
+          hdi: player.stats.hdi,
+          security: player.stats.security,
+          corruption: player.stats.corruption,
+        }
+
+        const historyRecord: EventHistoryRecord = {
+          id: makeId('eh'),
+          turn: game.turn,
+          eventId,
+          title: event.title,
+          body: event.body,
+          choiceId,
+          choiceLabel: choice.label,
+          ministryId: event.ministryId,
+          ministryCategory: event.ministryCategory,
+          rarity: event.rarity,
+          lines,
+          roll,
+          success,
+          tone: game.lastOutcome.tone,
+          timestamp: Date.now(),
+          before: beforeStats,
+          after: afterStats,
+        }
+        game.eventHistory = [...(game.eventHistory ?? []), historyRecord]
+
         game.rngState = rng.value
         pushLog(
           game,
@@ -1194,13 +1531,15 @@ export const useGame = create<GameStore>()(
         )
         set({
           game,
-          modal: {
-            kind: 'result',
-            title: event.title,
-            subtitle: choice.label,
-            lines,
-            tone: success === false || choice.tone === 'danger' ? 'negative' : 'neutral',
-          },
+          modal: showResultModal
+            ? {
+                kind: 'result',
+                title: event.title,
+                subtitle: choice.label,
+                lines,
+                tone: success === false || choice.tone === 'danger' ? 'negative' : 'neutral',
+              }
+            : get().modal,
         })
       },
     }),

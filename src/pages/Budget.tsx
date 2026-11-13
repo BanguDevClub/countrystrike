@@ -114,7 +114,10 @@ export function Budget() {
   const limit = debtLimit(player)
   const maxLedger = Math.max(budget.totalRevenue, budget.totalExpenses, 1)
   const currentResourceValue = resource.production * resource.price
-  const selectedReserveRunway = formatReserveRunway(resource.reserves, resource.production)
+  const selectedReserveRunway = formatReserveRunway(
+    resource.reserves,
+    resource.depletion ?? resource.production,
+  )
   const selectedStockRunway = formatStockRunway(resource.stock, resource.finalBalance)
   return (
     <div className="page">
@@ -637,7 +640,7 @@ export function Budget() {
                 <th>Resource</th>
                 <th
                   className="num"
-                  title="Known reserves and estimated runway in turns at current production"
+                  title="Known reserves and estimated runway in turns at current depletion rate"
                 >
                   Reserves
                   <small className="cell-sub">runway</small>
@@ -662,7 +665,10 @@ export function Budget() {
               {RESOURCE_IDS.map((id) => {
                 const def = RESOURCES.find((entry) => entry.id === id)!
                 const flow = flows[id]
-                const reserveRunway = formatReserveRunway(flow.reserves, flow.production)
+                const reserveRunway = formatReserveRunway(
+                  flow.reserves,
+                  flow.depletion ?? flow.production,
+                )
                 const stockRunway = formatStockRunway(flow.stock, flow.finalBalance)
                 return (
                   <tr key={id}>
@@ -675,7 +681,7 @@ export function Budget() {
                     </td>
                     <td
                       className="num"
-                      title={`Reserves: ${formatQuantity(flow.reserves)} · Lasts ${reserveRunway.text} at current production (${formatQuantity(flow.production)}/turn)`}
+                      title={`Reserves: ${formatQuantity(flow.reserves)} · Lasts ${reserveRunway.text} at current depletion (${formatQuantity(flow.depletion ?? flow.production)}/turn)`}
                     >
                       <span>{formatQuantity(flow.reserves)}</span>
                       <small

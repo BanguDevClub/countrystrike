@@ -244,11 +244,12 @@ export function Methodology() {
           <Formula
             tex={String.raw`\text{Stock}_{t+1} = \max(0,\ \text{Stock}_t + \text{Final Balance})`}
           />
+          <Formula tex={String.raw`\text{Depletion} = \min(L_e, L_r) \cdot C`} />
           <Formula
-            tex={String.raw`\text{Known Reserves}_{t+1} = \max(0,\ \text{Known Reserves}_t - \text{Production})`}
+            tex={String.raw`\text{Known Reserves}_{t+1} = \max(0,\ \text{Known Reserves}_t - \text{Depletion})`}
           />
           <Formula
-            tex={String.raw`\text{Reserve Runway} = \frac{\text{Known Reserves}}{\text{Production}} \quad (\text{if Production} > 0)`}
+            tex={String.raw`\text{Reserve Runway} = \frac{\text{Known Reserves}}{\text{Depletion}} \quad (\text{if Depletion} > 0)`}
           />
           <Formula
             tex={String.raw`\text{Stock Runway} = \frac{\text{Stock}}{|\text{Final Balance}|} \quad (\text{if Final Balance} < 0)`}
@@ -268,9 +269,10 @@ export function Methodology() {
         </p>
         <p>
           <strong>Reserve runway</strong> estimates how many turns known reserves will last under
-          the current production rate (indefinite if production is zero).{' '}
-          <strong>Stock runway</strong> estimates how many turns the stored stockpile can sustain an
-          ongoing deficit before shortage strikes (indefinite under positive or balanced net flow).
+          the current depletion rate (base minimum of extraction and refinement ignoring buffs;
+          indefinite if depletion is zero). <strong>Stock runway</strong> estimates how many turns
+          the stored stockpile can sustain an ongoing deficit before shortage strikes (indefinite
+          under positive or balanced net flow).
         </p>
         <p>
           <strong>Upgrades (d6):</strong> 1 is failure, 2 small improvement (+1 Lv / modest

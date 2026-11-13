@@ -94,6 +94,9 @@ export function Governance() {
   const setTax = useGame((state) => state.setTax)
   const setMinistryBudget = useGame((state) => state.setMinistryBudget)
   const replaceMinister = useGame((state) => state.replaceMinister)
+  const auditMinister = useGame((state) => state.auditMinister)
+  const upgradeMinistry = useGame((state) => state.upgradeMinistry)
+  const trainMinister = useGame((state) => state.trainMinister)
   const setPage = useGame((state) => state.setPage)
   const [draft, setDraft] = useState<TaxRates>(
     player?.taxes ?? { corporate: 20, income: 20, tariff: 0, royalty: 20 },
@@ -458,7 +461,11 @@ export function Governance() {
           {MINISTRIES.map((ministry) => {
             const entry = player.ministries[ministry.id]
             const cost = player.stats.gdp * MINISTRY_COST_FACTORS[entry.budget]
+            const tier = entry.level ?? 1
             const replaceCost = Math.max(25, player.stats.gdp * 0.0015)
+            const auditCost = Math.max(15, player.stats.gdp * 0.0008)
+            const upgradeCost = Math.max(40, player.stats.gdp * 0.0025 * tier)
+            const trainCost = Math.max(20, player.stats.gdp * 0.001)
             return (
               <div
                 key={ministry.id}
@@ -470,7 +477,7 @@ export function Governance() {
                   </span>
                   <div className="ministry-title">
                     <h3>{ministry.name.replace('Ministry of ', '')}</h3>
-                    <span>{ministry.focus}</span>
+                    <span>Tier {tier}/5 · {ministry.focus}</span>
                   </div>
                   <Badge
                     tone={
@@ -492,14 +499,51 @@ export function Governance() {
                       Skill {entry.head.skill} · Loyalty {entry.head.loyalty}
                     </span>
                   </div>
+                </div>
+                <div className="briefing-actions-row" style={{ marginTop: '4px' }}>
                   <button
                     type="button"
-                    className="btn btn-tiny"
+                    className="briefing-action-btn"
+                    onClick={() => auditMinister(ministry.id)}
+                    disabled={game.actionsLeft < 1 || player.stats.treasury < auditCost || entry.head.corruption === 0}
+                    title={`Audit minister corruption (-20) · ${formatMoney(auditCost)} · 1 action`}
+                  >
+                    <Icon name="Search" size={12} />
+                    <span>Audit</span>
+                    <span className="cost">{formatMoney(auditCost)}</span>
+                  </button>
+                  <button
+                    type="button"
+                    className="briefing-action-btn"
+                    onClick={() => upgradeMinistry(ministry.id)}
+                    disabled={game.actionsLeft < 1 || player.stats.treasury < upgradeCost || tier >= 5}
+                    title={`Upgrade ministry tier (+1 Tier, +6 Skill) · ${formatMoney(upgradeCost)} · 1 action`}
+                  >
+                    <Icon name="ArrowUpCircle" size={12} />
+                    <span>Upgrade</span>
+                    <span className="cost">{formatMoney(upgradeCost)}</span>
+                  </button>
+                  <button
+                    type="button"
+                    className="briefing-action-btn"
+                    onClick={() => trainMinister(ministry.id)}
+                    disabled={game.actionsLeft < 1 || player.stats.treasury < trainCost || (entry.head.skill >= 100 && entry.head.loyalty >= 100)}
+                    title={`Train minister (+12 Skill, +10 Loyalty) · ${formatMoney(trainCost)} · 1 action`}
+                  >
+                    <Icon name="GraduationCap" size={12} />
+                    <span>Train</span>
+                    <span className="cost">{formatMoney(trainCost)}</span>
+                  </button>
+                  <button
+                    type="button"
+                    className="briefing-action-btn"
                     onClick={() => replaceMinister(ministry.id)}
                     disabled={game.actionsLeft < 1 || player.stats.treasury < replaceCost}
-                    title={`Replace minister · ${formatMoney(replaceCost)}`}
+                    title={`Appoint new minister · ${formatMoney(replaceCost)} · 1 action`}
                   >
-                    Replace
+                    <Icon name="UserX" size={12} />
+                    <span>Replace</span>
+                    <span className="cost">{formatMoney(replaceCost)}</span>
                   </button>
                 </div>
                 <div className="minister-bars">

@@ -150,6 +150,7 @@ export function SiteHeader() {
   const endTurn = useGame((state) => state.endTurn)
   const openNewGame = useGame((state) => state.openNewGame)
   const player = useGame(selectPlayer)
+  const openTurnBriefing = useGame((state) => state.openTurnBriefing)
   const { sound, music, setSound, setMusic } = usePrefs()
 
   const endTurnDisabled = Boolean(
@@ -196,6 +197,15 @@ export function SiteHeader() {
               </span>
               <span>{formatMoney(player.stats.treasury)}</span>
             </div>
+            <button
+              type="button"
+              className="btn btn-ghost btn-sm header-cabinet-btn"
+              onClick={() => openTurnBriefing()}
+              title="Open Cabinet & Turn Briefing"
+            >
+              <Icon name="Landmark" size={14} />
+              Cabinet
+            </button>
             <button
               type="button"
               className="btn btn-primary btn-end-turn"

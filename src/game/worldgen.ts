@@ -240,6 +240,8 @@ function makeMinistries(rng: RNG): Record<MinistryId, Ministry> {
         skill: rng.int(28, 88),
       },
       budget,
+      level: 1,
+      upgrades: [],
     }
   }
   return ministries
@@ -689,5 +691,6 @@ export function generateWorld(settings: GameSettings, seed = randomSeed()): Game
     eventQueue: ['inauguration'],
     seenEvents: [],
     lastOutcome: null,
+    eventHistory: [],
   }
 }

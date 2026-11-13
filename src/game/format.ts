@@ -64,15 +64,15 @@ export function formatTurnRunway(turns: number | null, fallback = '∞'): string
 
 export function formatReserveRunway(
   reserves: number,
-  production: number,
+  depletion: number,
 ): { turns: number | null; text: string; tone: 'warning' | 'negative' | 'muted' } {
   if (reserves <= 0) {
     return { turns: 0, text: '0 turns', tone: 'negative' }
   }
-  if (production <= 0) {
+  if (depletion <= 0) {
     return { turns: null, text: '∞', tone: 'muted' }
   }
-  const turns = reserves / production
+  const turns = reserves / depletion
   const text = formatTurnRunway(turns)
   const tone = turns <= 5 ? 'negative' : turns <= 15 ? 'warning' : 'muted'
   return { turns, text, tone }

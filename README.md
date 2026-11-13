@@ -164,6 +164,8 @@ Production = min(Extraction, Refinement) × (1 + 0.15 × advances)
 Consumption = population × civil factor + Σ(unit count × unit resource use)
 Balance = production + imports − consumption − exports
 Stock' = max(0, stock + balance)
+Depletion = min(level_extraction, level_refinement) × capacity
+Reserves' = max(0, reserves − depletion)
 ```
 
 The full equations — including the budget, Laffer curve, market maker, military power, trade

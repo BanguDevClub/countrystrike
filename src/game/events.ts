@@ -1,6 +1,7 @@
 import { FIRST_NAMES, LAST_NAMES, MINISTRY_IDS, RESOURCE_IDS, UNIT_BY_ID } from './constants'
 import type {
   Country,
+  EventChoice,
   EventEffects,
   GameEventDefinition,
   GameState,
@@ -11,6 +12,7 @@ import { clamp } from './rng'
 import type { RNG } from './rng'
 import { debtLimit, isHostile, resourceFlows, taxBurden } from './selectors'
 import { formatMoney, formatSignedNumber, formatSignedPercent, titleCase } from './format'
+import { MINISTRY_EVENTS, BAILOUT_REQUEST_EVENTS } from './ministryEvents'
 
 function makeHeadName(rng: RNG): string {
   return `${rng.pick(FIRST_NAMES)} ${rng.pick(LAST_NAMES)}`
@@ -142,6 +144,54 @@ export function applyEventEffects(
         `${raised} underfunded ${raised === 1 ? 'ministry' : 'ministries'} raised to normal`,
       )
   }
+  if (effects.ministryId && country.ministries[effects.ministryId]) {
+    const min = country.ministries[effects.ministryId]
+    const minName = titleCase(effects.ministryId)
+    if (effects.ministerLoyaltyDelta !== undefined) {
+      min.head.loyalty = clamp(min.head.loyalty + effects.ministerLoyaltyDelta, 0, 100)
+      lines.push(`${minName} Minister loyalty ${formatSignedNumber(effects.ministerLoyaltyDelta)} (${min.head.loyalty})`)
+    }
+    if (effects.ministerCorruptionDelta !== undefined) {
+      min.head.corruption = clamp(min.head.corruption + effects.ministerCorruptionDelta, 0, 100)
+      lines.push(`${minName} Minister corruption ${formatSignedNumber(effects.ministerCorruptionDelta)} (${min.head.corruption})`)
+    }
+    if (effects.ministerSkillDelta !== undefined) {
+      min.head.skill = clamp(min.head.skill + effects.ministerSkillDelta, 0, 100)
+      lines.push(`${minName} Minister skill ${formatSignedNumber(effects.ministerSkillDelta)} (${min.head.skill})`)
+    }
+    if (effects.ministryLevelDelta !== undefined) {
+      min.level = clamp((min.level ?? 1) + effects.ministryLevelDelta, 1, 5)
+      lines.push(`${minName} Ministry level ${effects.ministryLevelDelta > 0 ? '+' : ''}${effects.ministryLevelDelta} (Tier ${min.level})`)
+    }
+  }
+  if (effects.replaceSpecificMinister && country.ministries[effects.replaceSpecificMinister]) {
+    const target = country.ministries[effects.replaceSpecificMinister]
+    const oldName = target.head.name
+    target.head = {
+      name: makeHeadName(rng),
+      corruption: rng.int(4, 18),
+      loyalty: rng.int(70, 98),
+      skill: rng.int(50, 95),
+    }
+    lines.push(`${oldName} dismissed from ${titleCase(effects.replaceSpecificMinister)}; succeeded by ${target.head.name}`)
+  }
+  if (effects.targetCountryId) {
+    const target = game.countries.find((c) => c.id === effects.targetCountryId)
+    if (target && target.status === 'alive') {
+      if (effects.targetCountryMoney !== undefined) {
+        target.stats.treasury = Math.max(0, target.stats.treasury + effects.targetCountryMoney)
+        lines.push(`${target.name} Treasury ${effects.targetCountryMoney >= 0 ? '+' : ''}${formatMoney(effects.targetCountryMoney)}`)
+      }
+      if (effects.targetCountryDebt !== undefined) {
+        target.stats.debt = Math.max(0, target.stats.debt + effects.targetCountryDebt)
+        lines.push(`${target.name} Debt ${effects.targetCountryDebt >= 0 ? '+' : ''}${formatMoney(effects.targetCountryDebt)}`)
+      }
+      if (effects.targetCountryRelations !== undefined) {
+        target.relations = clamp(target.relations + effects.targetCountryRelations, -100, 100)
+        lines.push(`Relations with ${target.name} ${formatSignedNumber(effects.targetCountryRelations)}`)
+      }
+    }
+  }
   if (effects.log) lines.push(effects.log)
   return lines
 }
@@ -176,8 +226,8 @@ const shortageResources = (game: GameState, player: Country): ResourceId[] => {
   return RESOURCE_IDS.filter((id) => flows[id].shortage > 0)
 }
 
-export const EVENTS: GameEventDefinition[] = [
-  {
+const CORE_EVENTS: GameEventDefinition[] = [
+{
     id: 'inauguration',
     title: 'The First Morning',
     body: 'The residence is yours. Outside the gates, the capital is still deciding what kind of country this will be. Your cabinet waits for a first signal: spend, cut, or reassure.',
@@ -785,10 +835,90 @@ export const EVENTS: GameEventDefinition[] = [
   },
 ]
 
-export const EVENT_BY_ID = Object.fromEntries(EVENTS.map((event) => [event.id, event])) as Record<
-  string,
-  GameEventDefinition
->
+export const EVENTS: GameEventDefinition[] = [
+  ...CORE_EVENTS,
+  ...MINISTRY_EVENTS,
+  ...BAILOUT_REQUEST_EVENTS,
+]
+export const EVENT_BY_ID = Object.fromEntries(
+  EVENTS.map((event) => [event.id, event]),
+) as Record<string, GameEventDefinition>
+
+export function resolveEventForGame(
+  game: GameState,
+  eventId: string,
+): GameEventDefinition | null {
+  const parts = eventId.split(':')
+  const baseId = parts[0] ?? eventId
+  const countryId = parts[1]
+  const baseEvent = EVENT_BY_ID[baseId]
+  if (!baseEvent) return null
+
+  const isBailout = baseId.startsWith('bailout_') || baseId.startsWith('req_money_')
+  if (!isBailout) return baseEvent
+
+  const targetCountry = countryId
+    ? game.countries.find((c) => c.id === countryId)
+    : game.countries.find((c) => c.status === 'alive' && !c.isPlayer && c.stats.treasury <= 0)
+
+  if (!targetCountry) return baseEvent
+
+  const name = targetCountry.name
+  const player = game.countries.find((c) => c.isPlayer) ?? game.countries[0]
+  const grantAmount = Math.max(
+    25,
+    Math.round(((player?.stats.gdp ?? 1000) * 0.01) * 10) / 10,
+  )
+
+  return {
+    ...baseEvent,
+    id: eventId,
+    title: `${name}: ${baseEvent.title}`,
+    body: `${name}'s national treasury is completely depleted ($0M). Facing an immediate fiscal shutdown, civil unrest, and debt default, their diplomatic envoy urgently requests emergency funding from our government.`,
+    choices: baseEvent.choices.map((ch: EventChoice) => {
+      if (ch.id === 'grant_bailout') {
+        return {
+          ...ch,
+          label: `Grant Emergency Bailout to ${name}`,
+          description: `Provide a rescue grant (${formatMoney(grantAmount)}) to ${name}. Restores their solvency, relations with ${name} +35, approval +5.`,
+          effects: {
+            ...ch.effects,
+            targetCountryId: targetCountry.id,
+            targetCountryMoney: grantAmount,
+            targetCountryRelations: 35,
+          },
+        }
+      }
+      if (ch.id === 'high_interest_loan') {
+        return {
+          ...ch,
+          label: `Offer Distress Loan to ${name}`,
+          description: `Lend ${formatMoney(grantAmount * 0.6)} to ${name} on strict repayment terms. ${name}'s debt increases to cover interest. Relations +10.`,
+          effects: {
+            ...ch.effects,
+            targetCountryId: targetCountry.id,
+            targetCountryDebt: grantAmount * 0.6,
+            targetCountryRelations: 10,
+          },
+        }
+      }
+      if (ch.id === 'refuse_bailout') {
+        return {
+          ...ch,
+          label: `Refuse ${name}'s Bailout Request`,
+          description: `Spend nothing ($0). Unable to pay spending, ${name}'s sovereign debt surges by +${formatMoney(grantAmount * 1.5)} with heavy penalties, and relations drop by -25.`,
+          effects: {
+            ...ch.effects,
+            targetCountryId: targetCountry.id,
+            targetCountryDebt: grantAmount * 1.5,
+            targetCountryRelations: -25,
+          },
+        }
+      }
+      return ch
+    }),
+  }
+}
 
 export function eventCandidates(state: GameState, player: Country): GameEventDefinition[] {
   return EVENTS.filter((event) => {

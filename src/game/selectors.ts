@@ -93,23 +93,35 @@ export function combinedModifiers(country: Country): ModifierBlock {
 }
 
 export function militaryPower(country: Country): number {
-  return UNIT_IDS.reduce((total, id) => {
+  const base = UNIT_IDS.reduce((total, id) => {
     const unit = UNIT_BY_ID[id]
     return total + (country.military[id] ?? 0) * unit.power
   }, 0)
+  const defHead = country.ministries.defense?.head
+  const defLevel = country.ministries.defense?.level ?? 1
+  const defBonus = 1 + (defHead ? (defHead.skill - 50) * 0.001 : 0) + (defLevel - 1) * 0.025
+  return Math.max(0, Math.round(base * Math.max(0.7, defBonus)))
 }
 
 export function unitUpkeep(country: Country): number {
   const modifiers = combinedModifiers(country)
   const defenseBudget = BUDGET_MULTIPLIERS[country.ministries.defense.budget]
   const budgetFactor = 1 - defenseBudget * 0.04
+  const defHead = country.ministries.defense?.head
+  const defLevel = country.ministries.defense?.level ?? 1
+  const efficiency =
+    1 -
+    (defHead ? (defHead.skill / 100) * 0.06 : 0) -
+    (defLevel - 1) * 0.02 +
+    (defHead ? (defHead.corruption / 100) * 0.04 : 0)
   return (
     UNIT_IDS.reduce((total, id) => {
       const unit = UNIT_BY_ID[id]
       return total + (country.military[id] ?? 0) * unit.upkeep
     }, 0) *
     Math.max(0.2, 1 + modifiers.militaryUpkeep) *
-    budgetFactor
+    budgetFactor *
+    Math.max(0.6, efficiency)
   )
 }
 
@@ -183,7 +195,13 @@ export function resourceProduction(country: Country, resourceId: ResourceId): Re
   const modifiers = combinedModifiers(country)
   const resourceMods = resourceModifier(modifiers, resourceId)
   const industryBudget = BUDGET_MULTIPLIERS[country.ministries.industry.budget]
-  const budgetFactor = 1 + industryBudget * 0.04
+  const indHead = country.ministries.industry?.head
+  const indLevel = country.ministries.industry?.level ?? 1
+  const budgetFactor =
+    1 +
+    industryBudget * 0.04 +
+    (indHead ? (indHead.skill - 50) * 0.0012 : 0) +
+    (indLevel - 1) * 0.025
   const researchBonus = state.researchBonus ?? state.researchLevel * 0.05
   const extractionCapacity = Math.max(
     0,
@@ -209,6 +227,17 @@ export function resourceProduction(country: Country, resourceId: ResourceId): Re
     production: Math.max(0, Math.min(capacity, state.reserves)),
   }
 }
+/**
+ * Turn depletion rate for known reserves: base minimum of extraction and refinement,
+ * ignoring trait, budget, research and advancement buffs.
+ */
+export function resourceDepletion(country: Country, resourceId: ResourceId): number {
+  const def = RESOURCE_BY_ID[resourceId]
+  const state = country.resources[resourceId]
+  const baseExtraction = state.extractionLevel * def.capacityPerLevel
+  const baseRefinement = state.refinementLevel * def.capacityPerLevel
+  return Math.min(baseExtraction, baseRefinement)
+}
 
 export function militaryResourceConsumption(country: Country, resourceId: ResourceId): number {
   return UNIT_IDS.reduce((total, id) => {
@@ -218,14 +247,14 @@ export function militaryResourceConsumption(country: Country, resourceId: Resour
 }
 
 /**
- * Number of turns remaining until known reserves are exhausted by current production.
- * Returns null if production is 0 or negative (reserves do not deplete).
+ * Number of turns remaining until known reserves are exhausted by current depletion rate.
+ * Returns null if depletion is 0 or negative (reserves do not deplete).
  * Returns 0 if reserves are already 0 or negative.
  */
-export function reserveRunway(reserves: number, production: number): number | null {
+export function reserveRunway(reserves: number, depletion: number): number | null {
   if (reserves <= 0) return 0
-  if (production <= 0) return null
-  return reserves / production
+  if (depletion <= 0) return null
+  return reserves / depletion
 }
 
 /**
@@ -254,6 +283,7 @@ export function resourceFlows(
       country,
       resourceId,
     )
+    const depletion = resourceDepletion(country, resourceId)
     const resourceMods = resourceModifier(modifiers, resourceId)
     const civilConsumption =
       country.stats.population * def.civilPerMillion * Math.max(0.1, 1 + resourceMods.consumption)
@@ -278,6 +308,7 @@ export function resourceFlows(
 
     entries[resourceId] = {
       production,
+      depletion,
       extractionCapacity,
       refinementCapacity,
       civilConsumption,
@@ -290,7 +321,7 @@ export function resourceFlows(
       reserves: state.reserves,
       shortage,
       price: prices[resourceId] ?? def.basePrice,
-      reserveRunway: reserveRunway(state.reserves, production),
+      reserveRunway: reserveRunway(state.reserves, depletion),
       stockRunway: stockRunway(state.stock, finalBalance),
     }
   }
@@ -305,7 +336,22 @@ export function laborForce(country: Country): number {
 export function effectiveTaxCollection(country: Country): number {
   const modifiers = combinedModifiers(country)
   const finance = BUDGET_MULTIPLIERS[country.ministries.finance.budget] * 0.03
-  return clamp(1 + modifiers.taxEfficiency + finance - country.stats.corruption / 500, 0.55, 1.3)
+  const finHead = country.ministries.finance?.head
+  const finLevel = country.ministries.finance?.level ?? 1
+  const skillBonus = finHead ? (finHead.skill - 50) * 0.0016 : 0
+  const corruptionPenalty = finHead ? (finHead.corruption / 100) * 0.05 : 0
+  const levelBonus = (finLevel - 1) * 0.025
+  return clamp(
+    1 +
+      modifiers.taxEfficiency +
+      finance +
+      skillBonus +
+      levelBonus -
+      corruptionPenalty -
+      country.stats.corruption / 500,
+    0.55,
+    1.4,
+  )
 }
 
 export function computeBudget(

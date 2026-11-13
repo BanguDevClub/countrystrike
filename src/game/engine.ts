@@ -37,12 +37,13 @@ import {
   isHostile,
   militaryPower,
   reserveRunway,
+  resourceDepletion,
   resourceFlows,
   soldiersPer100k,
   stockRunway,
 } from './selectors'
 import { eventCandidates } from './events'
-
+import { formatMoney } from './format'
 export const getPlayer = (game: GameState): Country =>
   game.countries.find((country) => country.id === game.playerId) ??
   game.countries.find((country) => country.isPlayer) ??
@@ -300,10 +301,16 @@ function runAiActions(game: GameState, rng: RNG): void {
 
 function updateRelations(game: GameState, player: Country, rng: RNG): void {
   const foreignBudget = BUDGET_MULTIPLIERS[player.ministries.foreign.budget]
+  const foreignHead = player.ministries.foreign?.head
+  const foreignLevel = player.ministries.foreign?.level ?? 1
+  const foreignSkillMod =
+    (foreignHead ? (foreignHead.skill - 50) * 0.008 : 0) +
+    (foreignLevel - 1) * 0.15 -
+    (foreignHead ? (foreignHead.corruption / 100) * 0.1 : 0)
   const tariffPressure = player.taxes.tariff / 90
   for (const country of rivalCountries(game)) {
     const previous = country.relations
-    let delta = rng.float(-0.75, 0.75) - tariffPressure + foreignBudget * 0.25
+    let delta = rng.float(-0.75, 0.75) - tariffPressure + foreignBudget * 0.25 + foreignSkillMod
     delta += (combinedModifiers(country).relation ?? 0) * 0.01
 
     const activeAutoDeals = game.deals.filter(
@@ -419,8 +426,30 @@ function updateCountryStats(
     rng.float(-0.5, 0.5)
   country.stats.approval = clamp(country.stats.approval + approvalDelta, 0, 100)
 
+  const totalIndustryLevel = RESOURCE_IDS.reduce(
+    (total, id) =>
+      total +
+      (country.resources[id]?.extractionLevel ?? 0) +
+      (country.resources[id]?.refinementLevel ?? 0),
+    0,
+  )
+  const totalAdvances = RESOURCE_IDS.reduce(
+    (total, id) =>
+      total +
+      (country.resources[id]?.advances ?? 0) * 2 +
+      (country.resources[id]?.researchLevel ?? 0),
+    0,
+  )
+  const currentMilitaryPower = militaryPower(country)
+  const industryGdpBoost = totalIndustryLevel * 0.0004
+  const advancesGdpBoost = totalAdvances * 0.0008
+  const militaryGdpBoost = Math.min(0.015, Math.log10(Math.max(1, currentMilitaryPower)) * 0.0015)
+
   const growth =
     0.006 +
+    industryGdpBoost +
+    advancesGdpBoost +
+    militaryGdpBoost +
     (modifiers.growth ?? 0) * 0.25 +
     highBudgets * 0.0008 -
     lowBudgets * 0.0008 +
@@ -428,9 +457,8 @@ function updateCountryStats(
     Math.max(0, burden - 45) * 0.00022 -
     (country.stats.corruption / 100) * 0.004 +
     (budget.net > 0 ? 0.0015 : -0.0025) +
-    rng.float(-0.004, 0.004)
-  country.stats.gdp = Math.max(100, country.stats.gdp * (1 + clamp(growth, -0.04, 0.05)))
-
+    rng.float(-0.003, 0.003)
+  country.stats.gdp = Math.max(100, country.stats.gdp * (1 + clamp(growth, -0.04, 0.08)))
   const populationGrowth =
     0.0025 +
     (country.stats.hdi - 0.5) * 0.002 +
@@ -443,10 +471,17 @@ function updateCountryStats(
   )
 
   const healthBudget = BUDGET_MULTIPLIERS[country.ministries.health.budget]
+  const healthHead = country.ministries.health?.head
+  const healthLevel = country.ministries.health?.level ?? 1
+  const healthMod =
+    (healthHead ? (healthHead.skill - 50) * 0.0006 : 0) +
+    (healthLevel - 1) * 0.015 -
+    (healthHead ? (healthHead.corruption / 100) * 0.01 : 0)
   const hdiTarget = clamp(
     0.28 +
       (gdpPerCapita(country) / 70_000) * 0.42 +
       (healthBudget + 1) * 0.024 +
+      healthMod +
       country.stats.approval / 900 -
       country.stats.corruption / 1_400,
     0.2,
@@ -495,10 +530,17 @@ function updateCountryStats(
   )
 
   const interiorBudget = BUDGET_MULTIPLIERS[country.ministries.interior.budget]
+  const interiorHead = country.ministries.interior?.head
+  const interiorLevel = country.ministries.interior?.level ?? 1
+  const interiorMod =
+    (interiorHead ? (interiorHead.skill - 50) * 0.08 : 0) +
+    (interiorLevel - 1) * 2.5 -
+    (interiorHead ? (interiorHead.corruption / 100) * 3 : 0)
   const securityTarget = clamp(
     26 +
       Math.min(30, soldiersPer100k(country) / 18) +
-      interiorBudget * 4 -
+      interiorBudget * 4 +
+      interiorMod -
       country.stats.corruption * 0.24 +
       (modifiers.security ?? 0) * 0.4,
     8,
@@ -522,6 +564,27 @@ function updateCountryStats(
     clamp(lerp(country.stats.corruption, corruptionTarget, 0.13) + rng.float(-0.25, 0.25), 0, 100),
     1,
   )
+
+  for (const id of MINISTRY_IDS) {
+    const min = country.ministries[id]
+    if (!min) continue
+    if (min.budget === 'low') {
+      min.head.loyalty = clamp(min.head.loyalty - rng.int(1, 3), 0, 100)
+      min.head.corruption = clamp(min.head.corruption + rng.int(0, 2), 0, 100)
+    } else if (min.budget === 'high') {
+      min.head.loyalty = clamp(min.head.loyalty + rng.int(1, 2), 0, 100)
+      if (rng.chance(0.35)) {
+        min.head.skill = clamp(min.head.skill + 1, 0, 100)
+      }
+      if (rng.chance(0.25)) {
+        min.head.corruption = clamp(min.head.corruption - 1, 0, 100)
+      }
+    } else {
+      if (min.head.loyalty < 50 && rng.chance(0.2)) {
+        min.head.loyalty += 1
+      }
+    }
+  }
 }
 
 /* ── History ───────────────────────────────────────────────────────────── */
@@ -578,25 +641,54 @@ function generateEvents(game: GameState, rng: RNG): void {
   const player = getPlayer(game)
   if (game.status !== 'playing') return
   const candidates = eventCandidates(game, player).filter(
-    (event) => !game.eventQueue.includes(event.id),
+    (event) => !game.eventQueue.some((qId) => qId.startsWith(event.id)),
   )
   if (candidates.length === 0) return
-  const hasConditional = candidates.some((event) => Boolean(event.condition))
-  const chance = 0.48 + (hasConditional ? 0.2 : 0) + (game.history.length < 3 ? 0.12 : 0)
-  if (!rng.chance(chance)) return
-  const weights = candidates.map((event) => Math.max(1, event.weight))
-  const first = rng.weighted(candidates, weights)
-  game.eventQueue.push(first.id)
-  if (candidates.length > 1 && rng.chance(0.22)) {
-    const remaining = candidates.filter((event) => event.id !== first.id)
-    if (remaining.length > 0) {
-      game.eventQueue.push(
-        rng.weighted(
-          remaining,
-          remaining.map((event) => event.weight),
-        ).id,
-      )
+
+  // 1. If any rival country has zero treasury: add bailout request event including that country
+  const brokeCountries = game.countries.filter(
+    (c) => c.status === 'alive' && !c.isPlayer && c.stats.treasury <= 0,
+  )
+  const bailoutCandidates = candidates.filter((event) =>
+    event.id.startsWith('bailout_') || event.id.startsWith('req_money_'),
+  )
+
+  if (brokeCountries.length > 0 && bailoutCandidates.length > 0) {
+    const pickedCountry = rng.pick(brokeCountries)
+    const pickedBailout = rng.pick(bailoutCandidates)
+    const encodedId = `${pickedBailout.id}:${pickedCountry.id}`
+    if (!game.eventQueue.includes(encodedId)) {
+      game.eventQueue.push(encodedId)
     }
+  }
+
+  // 2. Add at least one ministry event
+  const ministryCandidates = candidates.filter(
+    (event) => Boolean(event.ministryId) && !game.eventQueue.some((qId) => qId.startsWith(event.id)),
+  )
+  if (ministryCandidates.length > 0) {
+    const minWeights = ministryCandidates.map((event) => Math.max(1, event.weight))
+    const pickedMinistry = rng.weighted(ministryCandidates, minWeights)
+    game.eventQueue.push(pickedMinistry.id)
+  }
+
+  // 3. Add general / national / economic event so turn has multiple events
+  const remainingCandidates = candidates.filter(
+    (event) =>
+      !game.eventQueue.some((qId) => qId.startsWith(event.id)) &&
+      !event.id.startsWith('bailout_') &&
+      !event.id.startsWith('req_money_'),
+  )
+  if (remainingCandidates.length > 0 && (game.eventQueue.length < 2 || rng.chance(0.65))) {
+    const remainingWeights = remainingCandidates.map((event) => Math.max(1, event.weight))
+    const pickedOther = rng.weighted(remainingCandidates, remainingWeights)
+    game.eventQueue.push(pickedOther.id)
+  }
+
+  // Fallback: ensure at least one event is in queue
+  if (game.eventQueue.length === 0) {
+    const weights = candidates.map((event) => Math.max(1, event.weight))
+    game.eventQueue.push(rng.weighted(candidates, weights).id)
   }
 }
 
@@ -626,20 +718,49 @@ export function advanceTurn(game: GameState): GameState {
     for (const resourceId of RESOURCE_IDS) {
       const state = country.resources[resourceId]
       const flow = flows[resourceId]
-      state.reserves = roundTo(Math.max(0, state.reserves - flow.production), 1)
+      const depletion = flow.depletion ?? resourceDepletion(country, resourceId)
+      state.reserves = roundTo(Math.max(0, state.reserves - depletion), 1)
       const available = state.stock + flow.finalBalance
       state.stock = roundTo(Math.max(0, available), 1)
       flow.stock = state.stock
       flow.reserves = state.reserves
       flow.shortage = Math.max(0, -available)
-      flow.reserveRunway = reserveRunway(state.reserves, flow.production)
+      flow.reserveRunway = reserveRunway(state.reserves, depletion)
       flow.stockRunway = stockRunway(state.stock, flow.finalBalance)
     }
 
-    country.stats.treasury += budget.net
-    if (country.stats.treasury < 0) {
-      country.stats.debt += -country.stats.treasury
+    const unpaidDeficit = Math.max(
+      0,
+      budget.totalExpenses - (country.stats.treasury + budget.totalRevenue),
+    )
+    if (unpaidDeficit > 0) {
       country.stats.treasury = 0
+      const emergencySurcharge = unpaidDeficit * 0.05
+      country.stats.debt += unpaidDeficit + emergencySurcharge
+      country.stats.debtRate = clamp(country.stats.debtRate + 0.2, 1, 35)
+      if (country.id === player.id) {
+        pushLog(
+          game,
+          'economy',
+          `Could not pay ${formatMoney(budget.totalExpenses)} spending with zero treasury. National debt raised by ${formatMoney(unpaidDeficit + emergencySurcharge)} (Rate: ${country.stats.debtRate.toFixed(1)}%).`,
+          country,
+          'negative',
+        )
+      } else {
+        pushLog(
+          game,
+          'world',
+          `${country.name} failed to cover spending with zero treasury. Debt raised by ${formatMoney(unpaidDeficit + emergencySurcharge)}.`,
+          country,
+          'negative',
+        )
+      }
+    } else {
+      country.stats.treasury += budget.net
+      if (country.stats.treasury < 0) {
+        country.stats.debt += -country.stats.treasury
+        country.stats.treasury = 0
+      }
     }
 
     updateCountryStats(country, flows, budget, rng)

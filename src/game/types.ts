@@ -107,7 +107,12 @@ export interface MinistryHead {
 export interface Ministry {
   head: MinistryHead
   budget: BudgetLevel
+  level: number
+  upgrades?: string[]
 }
+
+export type MinistryEventCategory = 'corruption' | 'betrayal' | 'improvement' | 'upgrade'
+export type EventRarity = 'common' | 'rare' | 'epic' | 'legendary'
 
 export interface ResourceState {
   reserves: number
@@ -199,6 +204,7 @@ export interface ResourceProduction {
 
 export interface ResourceFlow {
   production: number
+  depletion: number
   extractionCapacity: number
   refinementCapacity: number
   civilConsumption: number
@@ -300,6 +306,16 @@ export interface EventEffects {
   taxDelta?: Partial<TaxRates>
   replaceCorruptMinister?: boolean
   budgetBoost?: boolean
+  ministryId?: MinistryId
+  ministerLoyaltyDelta?: number
+  ministerCorruptionDelta?: number
+  ministerSkillDelta?: number
+  ministryLevelDelta?: number
+  replaceSpecificMinister?: MinistryId
+  targetCountryId?: string
+  targetCountryMoney?: number
+  targetCountryDebt?: number
+  targetCountryRelations?: number
   log?: string
 }
 
@@ -325,6 +341,9 @@ export interface GameEventDefinition {
   title: string
   body: string
   category: LogCategory
+  ministryId?: MinistryId
+  ministryCategory?: MinistryEventCategory
+  rarity?: EventRarity
   choices: EventChoice[]
   weight: number
   once?: boolean
@@ -339,6 +358,36 @@ export interface EventOutcome {
   roll?: number
   success?: boolean
   tone: 'positive' | 'negative' | 'neutral'
+}
+
+export interface EventStatSnapshot {
+  treasury: number
+  debt: number
+  gdp: number
+  approval: number
+  hdi: number
+  security: number
+  corruption: number
+}
+
+export interface EventHistoryRecord {
+  id: string
+  turn: number
+  eventId: string
+  title: string
+  body: string
+  choiceId: string
+  choiceLabel: string
+  ministryId?: MinistryId
+  ministryCategory?: MinistryEventCategory
+  rarity?: EventRarity
+  lines: string[]
+  roll?: number
+  success?: boolean
+  tone: 'positive' | 'negative' | 'neutral'
+  timestamp: number
+  before: EventStatSnapshot
+  after: EventStatSnapshot
 }
 
 /* ── Player checks / modals ────────────────────────────────────────────── */
@@ -365,6 +414,7 @@ export interface PendingCheck {
   breakthroughRoll?: number
   breakthrough?: boolean
   winChance?: number
+  hasAllAdvancements?: boolean
 }
 
 export type ModalState =
@@ -378,6 +428,7 @@ export type ModalState =
       tone: 'positive' | 'negative' | 'neutral'
     }
   | { kind: 'new-game' }
+  | { kind: 'turn-briefing'; eventId?: string }
   | null
 
 export interface Toast {
@@ -407,4 +458,5 @@ export interface GameState {
   eventQueue: string[]
   seenEvents: string[]
   lastOutcome: EventOutcome | null
+  eventHistory: EventHistoryRecord[]
 }
