@@ -994,29 +994,41 @@ export interface ContinentSlot {
 }
 
 export const CONTINENT_LAYOUTS: Record<number, ContinentSlot[]> = {
-  1: [{ cx: 500, cy: 280, rx: 360, ry: 205, rot: 0 }],
+  1: [{ cx: 500, cy: 280, rx: 355, ry: 185, rot: -4 }],
   2: [
-    { cx: 285, cy: 285, rx: 225, ry: 185, rot: -8 },
-    { cx: 735, cy: 275, rx: 230, ry: 175, rot: 7 },
+    { cx: 250, cy: 285, rx: 180, ry: 150, rot: -14 },
+    { cx: 750, cy: 280, rx: 180, ry: 150, rot: 12 },
   ],
   3: [
-    { cx: 255, cy: 315, rx: 205, ry: 165, rot: -6 },
-    { cx: 755, cy: 325, rx: 195, ry: 155, rot: 8 },
-    { cx: 500, cy: 145, rx: 245, ry: 105, rot: 2 },
+    { cx: 240, cy: 343, rx: 180, ry: 110, rot: -12 },
+    { cx: 760, cy: 343, rx: 180, ry: 110, rot: 12 },
+    { cx: 500, cy: 125, rx: 220, ry: 88, rot: 2 },
   ],
   4: [
-    { cx: 245, cy: 180, rx: 185, ry: 120, rot: -7 },
-    { cx: 760, cy: 175, rx: 185, ry: 120, rot: 7 },
-    { cx: 255, cy: 400, rx: 170, ry: 115, rot: 5 },
-    { cx: 750, cy: 400, rx: 180, ry: 120, rot: -5 },
+    { cx: 230, cy: 155, rx: 160, ry: 88, rot: -12 },
+    { cx: 770, cy: 155, rx: 160, ry: 88, rot: 12 },
+    { cx: 240, cy: 420, rx: 160, ry: 85, rot: 8 },
+    { cx: 760, cy: 420, rx: 160, ry: 85, rot: -8 },
   ],
   5: [
-    { cx: 190, cy: 190, rx: 155, ry: 108, rot: -8 },
-    { cx: 455, cy: 145, rx: 170, ry: 95, rot: 3 },
-    { cx: 785, cy: 195, rx: 155, ry: 105, rot: 8 },
-    { cx: 300, cy: 415, rx: 165, ry: 100, rot: 4 },
-    { cx: 700, cy: 415, rx: 165, ry: 105, rot: -4 },
+    { cx: 150, cy: 165, rx: 110, ry: 75, rot: -12 },
+    { cx: 500, cy: 125, rx: 145, ry: 80, rot: 2 },
+    { cx: 850, cy: 165, rx: 110, ry: 75, rot: 12 },
+    { cx: 255, cy: 418, rx: 150, ry: 85, rot: 8 },
+    { cx: 745, cy: 418, rx: 150, ry: 85, rot: -8 },
   ],
+}
+
+export const CONTINENT_TINTS = ['#417c74', '#6b7d4a', '#7a5f8f', '#8a6a4d', '#4d6a9b'] as const
+
+export const BIOME_COLORS: Record<string, string> = {
+  tundra: '#8096a3',
+  desert: '#b09a6d',
+  tropical: '#6d9068',
+  temperate: '#829b6d',
+  alpine: '#858c9b',
+  coastal: '#638d96',
+  steppe: '#9a9364',
 }
 
 export const CELL_COLORS = [

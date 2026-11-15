@@ -1,24 +1,25 @@
-import { useMemo, useState, type MouseEvent } from 'react'
+import { useCallback, useMemo, useState } from 'react'
 import { GOVERNMENT_BY_ID, RESOURCE_IDS, RESOURCES, TRAIT_BY_ID, UNITS } from '../game/constants'
 import type { Country, LogCategory } from '../game/types'
 import { selectPlayer, useGame } from '../state/gameStore'
 import { averageWorldApproval, totalWorldGdp, worldPopulation } from '../game/engine'
-import { computeComposites, isHostile, militaryPower, relationLabel } from '../game/selectors'
+import { computeComposites, militaryPower, relationLabel } from '../game/selectors'
 import {
-  formatDecimal,
-  formatMoney,
-  formatNumber,
-  formatUsd,
-  formatPercent,
-  truncate,
-} from '../game/format'
+  MAP_COLOR_MODES,
+  MAP_FILTERS,
+  buildMapColorContext,
+  buildMapLegend,
+  buildMapRoutes,
+  filterMapCountries,
+  type MapColorMode,
+  type MapFilter,
+} from '../game/mapVisuals'
+import { formatDecimal, formatMoney, formatNumber, formatUsd, formatPercent } from '../game/format'
 import { useMediaQuery } from '../hooks/useMediaQuery'
 import { Flag } from '../components/Flag'
 import { Icon } from '../components/Icon'
+import { WorldMapCanvas } from '../components/WorldMapCanvas'
 import { Badge, EmptyState, PageHeader, ProgressBar, SectionCard, StatTile } from '../components/ui'
-
-const polygonPath = (points: [number, number][]): string =>
-  `${points.map(([x, y], index) => `${index === 0 ? 'M' : 'L'}${x},${y}`).join(' ')} Z`
 
 const categoryTone: Record<
   LogCategory,
@@ -33,10 +34,20 @@ const categoryTone: Record<
   world: 'muted',
 }
 
-function HoverCard({ country, x, y }: { country: Country; x: number; y: number }) {
+function HoverCard({
+  country,
+  continent,
+  x,
+  y,
+}: {
+  country: Country
+  continent: string
+  x: number
+  y: number
+}) {
   const government = GOVERNMENT_BY_ID[country.government]
   const left = Math.max(12, Math.min(x + 16, window.innerWidth - 244))
-  const top = Math.max(12, Math.min(y + 16, window.innerHeight - 174))
+  const top = Math.max(12, Math.min(y + 16, window.innerHeight - 218))
   return (
     <div className="map-hover-card" style={{ left, top }}>
       <div className="map-hover-head">
@@ -49,6 +60,12 @@ function HoverCard({ country, x, y }: { country: Country; x: number; y: number }
         </div>
       </div>
       <div className="map-hover-rows">
+        <span>
+          Continent <strong>{continent || '—'}</strong>
+        </span>
+        <span>
+          Alignment <strong>{relationLabel(country.relations)}</strong>
+        </span>
         <span>
           Relations <strong>{Math.round(country.relations)}</strong>
         </span>
@@ -70,6 +87,12 @@ export function WorldMap() {
   const openCountry = useGame((state) => state.openCountry)
   const setPage = useGame((state) => state.setPage)
   const [hover, setHover] = useState<{ country: Country; x: number; y: number } | null>(null)
+  const [colorMode, setColorMode] = useState<MapColorMode>('terrain')
+  const [statusFilter, setStatusFilter] = useState<MapFilter>('all')
+  const [continentFilter, setContinentFilter] = useState('all')
+  const [query, setQuery] = useState('')
+  const [showLabels, setShowLabels] = useState(true)
+  const [showRoutes, setShowRoutes] = useState(true)
   const isNarrow = useMediaQuery('(max-width: 700px)')
 
   const composites = useMemo(() => (game ? computeComposites(game.countries) : new Map()), [game])
@@ -86,7 +109,41 @@ export function WorldMap() {
   const recentLogs = game ? [...game.logs].slice(-5).reverse() : []
   const continents = game?.continents ?? []
 
-  if (!game || !player) return null
+  const colorContext = useMemo(
+    () => (game ? buildMapColorContext(game.countries, game.settings) : null),
+    [game],
+  )
+  const visibleIds = useMemo(() => {
+    if (!game) return new Set<string>()
+    return filterMapCountries(
+      game.countries,
+      { filter: statusFilter, continentId: continentFilter, query },
+      game.settings,
+    )
+  }, [game, statusFilter, continentFilter, query])
+  const routes = useMemo(
+    () =>
+      game && player ? buildMapRoutes(game.countries, player, game.deals, isNarrow ? 8 : 20) : [],
+    [game, player, isNarrow],
+  )
+  const legend = useMemo(
+    () => (game && colorContext ? buildMapLegend(colorMode, game.countries, colorContext) : null),
+    [game, colorContext, colorMode],
+  )
+  const handleCountryClick = useCallback(
+    (country: Country) => openCountry(country.id),
+    [openCountry],
+  )
+  const handleHoverCountry = useCallback(
+    (country: Country, x: number, y: number) => setHover({ country, x, y }),
+    [],
+  )
+  const handleHoverEnd = useCallback(() => setHover(null), [])
+  const handleContinentClick = useCallback((continentId: string) => {
+    setContinentFilter((current) => (current === continentId ? 'all' : continentId))
+  }, [])
+
+  if (!game || !player || !colorContext) return null
 
   const averageRelations =
     rivalCountries.length > 0
@@ -97,10 +154,10 @@ export function WorldMap() {
     .filter((country) => country.status === 'alive')
     .reduce((total, country) => total + militaryPower(country), 0)
   const worldApproval = averageWorldApproval(game)
-
-  const handleCountryClick = (country: Country) => {
-    openCountry(country.id)
-  }
+  const colorModeHint = MAP_COLOR_MODES.find((mode) => mode.id === colorMode)?.hint ?? ''
+  const hoveredContinent = hover
+    ? (continents.find((continent) => continent.id === hover.country.continentId)?.name ?? '')
+    : ''
 
   return (
     <div className="page map-page">
@@ -151,12 +208,15 @@ export function WorldMap() {
               The world in {game.turn} turn{game.turn === 1 ? '' : 's'}
             </span>
           }
-          subtitle="Territory, biome and alignment. Select a country to open its dossier."
+          subtitle={`${visibleIds.size} of ${game.countries.length} states highlighted. Filter the world, switch palettes and trace active trade corridors.`}
           action={
             <div className="map-card-actions">
               <Badge tone="accent" icon="Globe">
                 {game.countries.filter((country) => country.status === 'alive').length} sovereign
                 states
+              </Badge>
+              <Badge tone="muted" icon="Layers">
+                {continents.length} continent{continents.length === 1 ? '' : 's'}
               </Badge>
               <span className="map-legend-inline">
                 <span className="legend-dot player-dot" /> You
@@ -164,221 +224,174 @@ export function WorldMap() {
             </div>
           }
         >
-          <div className="map-frame">
-            <svg
-              viewBox="0 0 1000 560"
-              className="world-map"
-              preserveAspectRatio="xMidYMid meet"
-              role="group"
-              aria-label="World map"
+          <div className="map-toolbar">
+            <div className="search-field map-search-field">
+              <Icon name="Search" size={15} />
+              <input
+                className="input input-small"
+                placeholder="Find a nation"
+                value={query}
+                onChange={(event) => setQuery(event.target.value)}
+                aria-label="Search nations by name, code or capital"
+              />
+              {query.length > 0 && (
+                <button
+                  type="button"
+                  className="map-search-clear"
+                  onClick={() => setQuery('')}
+                  aria-label="Clear nation search"
+                >
+                  <Icon name="X" size={13} />
+                </button>
+              )}
+            </div>
+            <select
+              className="select select-small map-filter-select"
+              value={statusFilter}
+              onChange={(event) => setStatusFilter(event.target.value as MapFilter)}
+              aria-label="Filter nations by state status"
             >
-              <defs>
-                <pattern id="ocean-dots" width="18" height="18" patternUnits="userSpaceOnUse">
-                  <circle cx="2" cy="2" r="1" fill="var(--map-dot)" />
-                </pattern>
-                <pattern
-                  id="merged-hatch"
-                  width="8"
-                  height="8"
-                  patternUnits="userSpaceOnUse"
-                  patternTransform="rotate(35)"
-                >
-                  <line
-                    x1="0"
-                    y1="0"
-                    x2="0"
-                    y2="8"
-                    stroke="var(--accent-2)"
-                    strokeWidth="2.2"
-                    opacity="0.7"
-                  />
-                </pattern>
-                <pattern
-                  id="destroyed-hatch"
-                  width="7"
-                  height="7"
-                  patternUnits="userSpaceOnUse"
-                  patternTransform="rotate(-35)"
-                >
-                  <line
-                    x1="0"
-                    y1="0"
-                    x2="0"
-                    y2="7"
-                    stroke="var(--error)"
-                    strokeWidth="1.6"
-                    opacity="0.5"
-                  />
-                </pattern>
-                <radialGradient id="ocean-glow" cx="50%" cy="45%" r="70%">
-                  <stop offset="0%" stopColor="var(--map-ocean-light)" />
-                  <stop offset="100%" stopColor="var(--map-ocean)" />
-                </radialGradient>
-              </defs>
-              <rect width="1000" height="560" fill="url(#ocean-glow)" />
-              <rect width="1000" height="560" fill="url(#ocean-dots)" />
-              {Array.from({ length: 7 }).map((_, index) => (
-                <line
-                  key={`h-${index}`}
-                  x1="0"
-                  y1={index * 94}
-                  x2="1000"
-                  y2={index * 94}
-                  className="map-graticule"
-                />
+              {MAP_FILTERS.map((option) => (
+                <option key={option.id} value={option.id}>
+                  {option.label}
+                </option>
               ))}
-              {Array.from({ length: 11 }).map((_, index) => (
-                <line
-                  key={`v-${index}`}
-                  x1={index * 100}
-                  y1="0"
-                  x2={index * 100}
-                  y2="560"
-                  className="map-graticule"
-                />
-              ))}
-
+            </select>
+            <select
+              className="select select-small map-filter-select"
+              value={continentFilter}
+              onChange={(event) => setContinentFilter(event.target.value)}
+              aria-label="Filter nations by continent"
+            >
+              <option value="all">All continents</option>
               {continents.map((continent) => (
-                <g key={continent.id} className="continent-group">
-                  <path d={polygonPath(continent.polygon)} className="continent-shape" />
-                  <path d={polygonPath(continent.polygon)} className="continent-coast" />
-                  <text
-                    x={continent.label[0]}
-                    y={continent.label[1]}
-                    className="continent-label"
-                    textAnchor="middle"
-                  >
-                    {continent.name}
-                  </text>
-                </g>
-              ))}
-
-              {game.countries.map((country) => {
-                const isPlayer = country.isPlayer
-                const isMerged = country.status === 'merged'
-                const isDestroyed = country.status === 'destroyed'
-                const label = isNarrow ? country.code : truncate(country.name, 13)
-                return (
-                  <g
-                    key={country.id}
-                    className={`country-cell status-${country.status} ${isPlayer ? 'is-player' : ''} ${hover?.country.id === country.id ? 'is-hovered' : ''}`}
-                    onClick={() => handleCountryClick(country)}
-                    onMouseEnter={(event: MouseEvent<SVGGElement>) => {
-                      setHover({ country, x: event.clientX, y: event.clientY })
-                    }}
-                    onMouseMove={(event: MouseEvent<SVGGElement>) => {
-                      setHover({ country, x: event.clientX, y: event.clientY })
-                    }}
-                    onMouseLeave={() => setHover(null)}
-                    onFocus={() => setHover(null)}
-                    onKeyDown={(event) => {
-                      if (event.key === 'Enter' || event.key === ' ') {
-                        event.preventDefault()
-                        handleCountryClick(country)
-                      }
-                    }}
-                    tabIndex={0}
-                    role="button"
-                    aria-label={`${country.name}, ${GOVERNMENT_BY_ID[country.government]?.name}. Open dossier.`}
-                  >
-                    <path
-                      d={polygonPath(country.map.polygon)}
-                      className="country-territory"
-                      style={{ fill: country.map.color }}
-                    />
-                    {isMerged && (
-                      <path
-                        d={polygonPath(country.map.polygon)}
-                        className="territory-overlay"
-                        fill="url(#merged-hatch)"
-                      />
-                    )}
-                    {isDestroyed && (
-                      <path
-                        d={polygonPath(country.map.polygon)}
-                        className="territory-overlay"
-                        fill="url(#destroyed-hatch)"
-                      />
-                    )}
-                    <text
-                      x={country.map.centroid[0]}
-                      y={country.map.centroid[1] - (isPlayer ? 3 : 0)}
-                      textAnchor="middle"
-                      dominantBaseline="middle"
-                      className="country-label"
-                    >
-                      {label}
-                    </text>
-                    {isPlayer && (
-                      <text
-                        x={country.map.centroid[0]}
-                        y={country.map.centroid[1] + 11}
-                        textAnchor="middle"
-                        className="country-player-label"
-                      >
-                        YOUR NATION
-                      </text>
-                    )}
-                    {country.status === 'alive' &&
-                      !country.isPlayer &&
-                      (country.relations >= 100 || isHostile(country, game.settings)) && (
-                        <circle
-                          cx={country.map.centroid[0]}
-                          cy={country.map.centroid[1] - 18}
-                          r="3"
-                          className={
-                            country.relations >= 100
-                              ? 'map-marker allied-marker'
-                              : 'map-marker hostile-marker'
-                          }
-                        />
-                      )}
-                  </g>
-                )
-              })}
-
-              {continents.map((continent) => (
-                <text
-                  key={`label-${continent.id}`}
-                  x={continent.label[0]}
-                  y={continent.label[1]}
-                  className="continent-label"
-                  textAnchor="middle"
-                >
+                <option key={continent.id} value={continent.id}>
                   {continent.name}
-                </text>
+                </option>
               ))}
-
-              <g className="map-compass" transform="translate(944 500)">
-                <circle r="25" />
-                <path d="M0-19 L5-4 L0 0 L-5-4 Z" />
-                <text y="17" textAnchor="middle">
-                  N
-                </text>
-              </g>
-              <text x="28" y="536" className="map-ocean-caption">
-                COUNTRY STRIKE · WORLD SURVEY
-              </text>
-            </svg>
-            {hover && <HoverCard country={hover.country} x={hover.x} y={hover.y} />}
+            </select>
+            <div className="map-toolbar-actions">
+              <button
+                type="button"
+                className={`map-toggle ${showLabels ? 'is-active' : ''}`}
+                onClick={() => setShowLabels((current) => !current)}
+                aria-pressed={showLabels}
+              >
+                <Icon name="MapPin" size={14} /> Labels
+              </button>
+              <button
+                type="button"
+                className={`map-toggle ${showRoutes ? 'is-active' : ''}`}
+                onClick={() => setShowRoutes((current) => !current)}
+                aria-pressed={showRoutes}
+                title={
+                  routes.length > 0
+                    ? 'Toggle active trade corridors'
+                    : 'Sign a trade deal to open a corridor'
+                }
+              >
+                <Icon name="Route" size={14} /> Trade routes
+              </button>
+            </div>
           </div>
+
+          <div className="map-colorbar">
+            <span className="map-colorbar-label">
+              <Icon name="Palette" size={14} /> Map color
+            </span>
+            <div className="segmented segmented-small map-color-segmented">
+              {MAP_COLOR_MODES.map((mode) => (
+                <button
+                  key={mode.id}
+                  type="button"
+                  className={colorMode === mode.id ? 'is-active' : ''}
+                  onClick={() => setColorMode(mode.id)}
+                  aria-pressed={colorMode === mode.id}
+                  title={mode.hint}
+                >
+                  {mode.label}
+                </button>
+              ))}
+            </div>
+            <span className="map-colorbar-hint">{colorModeHint}</span>
+          </div>
+
+          <div className="map-frame">
+            <WorldMapCanvas
+              game={game}
+              colorMode={colorMode}
+              colorContext={colorContext}
+              visibleIds={visibleIds}
+              routes={routes}
+              hoveredId={hover?.country.id ?? null}
+              activeContinentId={continentFilter}
+              showLabels={showLabels}
+              showRoutes={showRoutes}
+              narrow={isNarrow}
+              onSelectCountry={handleCountryClick}
+              onHoverCountry={handleHoverCountry}
+              onHoverEnd={handleHoverEnd}
+              onSelectContinent={handleContinentClick}
+            />
+            {visibleIds.size === 0 && (
+              <div className="map-filter-empty">
+                <Icon name="Search" size={15} /> No nations match these filters.
+              </div>
+            )}
+            {hover && (
+              <HoverCard
+                country={hover.country}
+                continent={hoveredContinent}
+                x={hover.x}
+                y={hover.y}
+              />
+            )}
+          </div>
+
           <div className="map-legend">
-            <span>
-              <span className="legend-dot player-dot" /> Player nation
-            </span>
-            <span>
-              <span className="legend-swatch merged-swatch" /> Integrated territory
-            </span>
-            <span>
-              <span className="legend-swatch destroyed-swatch" /> Destroyed state
-            </span>
-            <span>
-              <span className="map-marker allied-marker" /> Full alignment
-            </span>
-            <span>
-              <span className="map-marker hostile-marker" /> Hostile
-            </span>
-            <span className="map-legend-hint">Select any country for the dossier</span>
+            {legend?.kind === 'gradient' ? (
+              <span className="map-legend-gradient">
+                <small>{legend.from}</small>
+                <span className="legend-gradient" style={{ background: legend.gradient }} />
+                <small>{legend.to}</small>
+              </span>
+            ) : (
+              legend?.items.map((item) => (
+                <span key={item.label}>
+                  <span className="legend-swatch" style={{ background: item.color }} />
+                  {item.label}
+                </span>
+              ))
+            )}
+            {colorMode !== 'alignment' && (
+              <>
+                <span>
+                  <span className="legend-swatch merged-swatch" /> Integrated
+                </span>
+                <span>
+                  <span className="legend-swatch destroyed-swatch" /> Fallen
+                </span>
+              </>
+            )}
+            {showRoutes && routes.length > 0 && (
+              <>
+                <span>
+                  <span className="route-swatch route-swatch-import" /> Imports
+                </span>
+                <span>
+                  <span className="route-swatch route-swatch-export" /> Exports
+                </span>
+                {routes.some((route) => route.kind === 'mixed') && (
+                  <span>
+                    <span className="route-swatch route-swatch-mixed" /> Both ways
+                  </span>
+                )}
+              </>
+            )}
+            {showRoutes && routes.length === 0 && (
+              <span className="map-legend-note">No active trade corridors</span>
+            )}
+            <span className="map-legend-hint">Select a nation for its dossier</span>
           </div>
         </SectionCard>
 

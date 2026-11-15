@@ -1,12 +1,14 @@
 import {
   ACTIONS_PER_TURN,
   BIOMES,
+  BIOME_COLORS,
   BONUS_TRAITS,
   CAPITAL_ROOTS,
   CAPITAL_SUFFIXES,
   CELL_COLORS,
   CONTINENT_LAYOUTS,
   CONTINENT_NAMES,
+  CONTINENT_TINTS,
   COUNTRY_ROOTS,
   COUNTRY_SUFFIXES,
   CULTURES,
@@ -24,6 +26,7 @@ import {
   UNIT_IDS,
   WEATHERS,
 } from './constants'
+import type { ContinentSlot } from './constants'
 import type {
   AutoDealMode,
   Continent,
@@ -41,6 +44,7 @@ import type {
   UnitId,
 } from './types'
 import { RNG, clamp, randomSeed, roundTo } from './rng'
+import { shadeHex } from './color'
 import { combinedModifiers, resourceModifier } from './selectors'
 
 /* ── Name helpers ──────────────────────────────────────────────────────── */
@@ -84,25 +88,44 @@ function makeCode(name: string, used: Set<string>): string {
 
 type Point = [number, number]
 
-function ellipsePolygon(
-  cx: number,
-  cy: number,
-  rx: number,
-  ry: number,
-  rotation: number,
-  segments = 56,
-): Point[] {
-  const radians = (rotation * Math.PI) / 180
+function coastlinePolygon(rng: RNG, slot: ContinentSlot): Point[] {
+  const controls = Array.from({ length: 12 }, () => rng.float(0.78, 1.18))
+  const harmonics = [
+    { frequency: 1, weight: 0.9, phase: rng.float(0, Math.PI * 2) },
+    { frequency: 2, weight: 1, phase: rng.float(0, Math.PI * 2) },
+    { frequency: 3, weight: 0.7, phase: rng.float(0, Math.PI * 2) },
+    { frequency: 4, weight: 0.45, phase: rng.float(0, Math.PI * 2) },
+    { frequency: 7, weight: 0.22, phase: rng.float(0, Math.PI * 2) },
+  ]
+  const weightTotal = harmonics.reduce((total, harmonic) => total + harmonic.weight, 0)
+  const segments = 96
+  const radians = (slot.rot * Math.PI) / 180
   const cos = Math.cos(radians)
   const sin = Math.sin(radians)
-  const points: Point[] = []
-  for (let i = 0; i < segments; i += 1) {
-    const angle = (Math.PI * 2 * i) / segments
-    const x = rx * Math.cos(angle)
-    const y = ry * Math.sin(angle)
-    points.push([cx + x * cos - y * sin, cy + x * sin + y * cos])
-  }
-  return points
+  return Array.from({ length: segments }, (_, index) => {
+    const angle = (Math.PI * 2 * index) / segments
+    const position = (index / segments) * controls.length
+    const controlIndex = Math.floor(position)
+    const fraction = position - controlIndex
+    const smooth = (1 - Math.cos(fraction * Math.PI)) / 2
+    const controlStart = controls[controlIndex % controls.length]!
+    const controlEnd = controls[(controlIndex + 1) % controls.length]!
+    const control = controlStart + (controlEnd - controlStart) * smooth
+    const controlNoise = Math.max(-1, Math.min(1, (control - 0.98) / 0.2))
+    const harmonicNoise =
+      harmonics.reduce(
+        (offset, harmonic) =>
+          offset + Math.sin(angle * harmonic.frequency + harmonic.phase) * harmonic.weight,
+        0,
+      ) / weightTotal
+    const wobble = Math.max(0.72, 1 + (harmonicNoise * 0.65 + controlNoise * 0.35) * 0.3)
+    const x = slot.rx * Math.cos(angle) * wobble
+    const y = slot.ry * Math.sin(angle) * wobble
+    return [
+      roundTo(slot.cx + x * cos - y * sin, 1),
+      roundTo(slot.cy + x * sin + y * cos, 1),
+    ] as Point
+  })
 }
 
 /** Sutherland–Hodgman clip of a convex polygon by the half-plane n·p ≤ c. */
@@ -178,16 +201,6 @@ function pointIsInsidePolygon(point: Point, polygon: Point[]): boolean {
     }
   }
   return inside
-}
-
-const biomeFill: Record<string, string> = {
-  tundra: '#8096a3',
-  desert: '#b09a6d',
-  tropical: '#6d9068',
-  temperate: '#829b6d',
-  alpine: '#858c9b',
-  coastal: '#638d96',
-  steppe: '#9a9364',
 }
 
 /* ── Country construction ──────────────────────────────────────────────── */
@@ -478,6 +491,39 @@ function distributeCounts(total: number, buckets: number): number[] {
   return counts
 }
 
+function placeContinentLabels(continents: Continent[]): void {
+  const placed: Point[] = []
+  for (const continent of continents) {
+    const xs = continent.polygon.map(([x]) => x)
+    const ys = continent.polygon.map(([, y]) => y)
+    const left = Math.min(...xs)
+    const right = Math.max(...xs)
+    const top = Math.min(...ys)
+    const bottom = Math.max(...ys)
+    const centerX = (left + right) / 2
+    const centerY = (top + bottom) / 2
+    const candidates: Point[] = [
+      [centerX, top - 12],
+      [centerX, bottom + 16],
+      [left - 24, centerY],
+      [right + 24, centerY],
+    ]
+    const fits = (candidate: Point): boolean =>
+      candidate[0] >= 60 &&
+      candidate[0] <= MAP_WIDTH - 60 &&
+      candidate[1] >= 20 &&
+      candidate[1] <= MAP_HEIGHT - 10 &&
+      !pointIsInsidePolygon(candidate, continent.polygon) &&
+      continents.every(
+        (other) => other.id === continent.id || !pointIsInsidePolygon(candidate, other.polygon),
+      ) &&
+      placed.every((label) => Math.hypot(label[0] - candidate[0], label[1] - candidate[1]) > 90)
+    const chosen = candidates.find(fits) ?? candidates[0]!
+    continent.label = [roundTo(chosen[0], 1), roundTo(chosen[1], 1)]
+    placed.push(chosen)
+  }
+}
+
 function createMap(
   rng: RNG,
   countryCount: number,
@@ -508,7 +554,7 @@ function createMap(
 
   for (let continentIndex = 0; continentIndex < safeContinents; continentIndex += 1) {
     const slot = slots[continentIndex]!
-    const localBoundary = ellipsePolygon(slot.cx, slot.cy, slot.rx, slot.ry, slot.rot)
+    const localBoundary = coastlinePolygon(rng, slot)
     let name = rng.pick(CONTINENT_NAMES)
     let nameAttempts = 0
     while (usedContinentNames.has(name) && nameAttempts < 50) {
@@ -518,13 +564,19 @@ function createMap(
     if (usedContinentNames.has(name)) name = `${name} ${continentIndex + 1}`
     usedContinentNames.add(name)
 
+    const boundaryLeft = Math.min(...localBoundary.map(([x]) => x))
+    const boundaryRight = Math.max(...localBoundary.map(([x]) => x))
+    const boundaryTop = Math.min(...localBoundary.map(([, y]) => y))
     const continent: Continent = {
       id: `continent-${continentIndex + 1}`,
       name,
-      polygon: localBoundary.map(([x, y]) => [roundTo(x, 1), roundTo(y, 1)] as Point),
+      polygon: localBoundary,
       center: [slot.cx, slot.cy],
-      label: [slot.cx, Math.max(30, slot.cy - slot.ry - 14)],
-      color: '#4c6b60',
+      label: [
+        roundTo((boundaryLeft + boundaryRight) / 2, 1),
+        roundTo(Math.max(22, boundaryTop - 12), 1),
+      ],
+      color: CONTINENT_TINTS[continentIndex % CONTINENT_TINTS.length] ?? CONTINENT_TINTS[0],
     }
     continents.push(continent)
 
@@ -540,7 +592,7 @@ function createMap(
     } else {
       for (let attempt = 0; attempt < 800 && localPoints.length < count; attempt += 1) {
         const angle = rng.float(0, Math.PI * 2)
-        const radius = Math.sqrt(rng.next()) * 0.78
+        const radius = Math.sqrt(rng.next()) * 0.64
         const x = slot.cx + Math.cos(angle) * slot.rx * radius
         const y = slot.cy + Math.sin(angle) * slot.ry * radius
         const minDistance = Math.min(slot.rx, slot.ry) * 0.18
@@ -578,8 +630,9 @@ function createMap(
       ) {
         centroid = [clamp(centroid[0], 18, MAP_WIDTH - 18), clamp(centroid[1], 18, MAP_HEIGHT - 18)]
       }
-      const color =
-        biomeFill[config?.biome ?? 'temperate'] ?? CELL_COLORS[cellIndex % CELL_COLORS.length]!
+      const biomeId = config?.biome ?? 'temperate'
+      const baseColor = BIOME_COLORS[biomeId] ?? CELL_COLORS[mapCells.length % CELL_COLORS.length]!
+      const color = shadeHex(baseColor, (((cellIndex + continentIndex) % 5) - 2) * 0.035)
       mapCells.push({
         seed: [roundTo(seed[0], 1), roundTo(seed[1], 1)],
         polygon: cellPolygon.map(([x, y]) => [roundTo(x, 1), roundTo(y, 1)] as Point),
@@ -590,6 +643,7 @@ function createMap(
     })
   }
 
+  placeContinentLabels(continents)
   return { continents, mapCells }
 }
 

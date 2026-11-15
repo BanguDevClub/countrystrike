@@ -133,10 +133,12 @@ src/
 ├── components/       Shared UI, layout, icon registry, flag renderer, modals
 ├── game/
 │   ├── audio.ts      Procedural sound effects and ambient music
+│   ├── color.ts      Hex mixing and shading for generated map palettes
 │   ├── constants.ts  Resources, units, governments, ministries, traits, scoring
 │   ├── engine.ts     Turn settlement, AI, history, event scheduling
 │   ├── events.ts     Event deck, conditions and effect application
 │   ├── format.ts     Money, quantity and percentage formatting
+│   ├── mapVisuals.ts Map palettes, filters, route arcs and legend models
 │   ├── rng.ts        Deterministic mulberry32 PRNG
 │   ├── selectors.ts  Resource flows, budget, composite score and derived stats
 │   ├── types.ts      Domain types
