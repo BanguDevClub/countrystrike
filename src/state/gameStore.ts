@@ -1539,7 +1539,9 @@ export const useGame = create<GameStore>()(
                 lines,
                 tone: success === false || choice.tone === 'danger' ? 'negative' : 'neutral',
               }
-            : get().modal,
+            : // Keep the briefing mounted after the last event resolves so its
+              // outcome stays visible until the player closes it explicitly.
+              (get().modal ?? { kind: 'turn-briefing', eventId }),
         })
       },
     }),
