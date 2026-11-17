@@ -5,6 +5,7 @@
 **Country Strike** is a turn-based geopolitical strategy and simulation game built with **React 19**, **TypeScript**, **Vite**, and **Zustand**. Players lead a sovereign nation, balancing domestic budgets, managing industrial production, directing six cabinet ministries, negotiating international trade and alliances, and navigating crises through dice-driven decisions and multi-event turn briefings.
 
 ### Core Technology Stack
+
 - **Framework**: React 19 (React DOM)
 - **Language**: TypeScript (strict mode, ES2022 target)
 - **State Management**: Zustand with `persist` middleware
@@ -33,6 +34,8 @@ countrystrike/
 │   │   ├── gameStore.ts     # Primary game store: turn flow, actions, modal router
 │   │   └── prefsStore.ts    # User settings: theme, audio, sound volume
 │   ├── pages/               # Top-level screen views
+│   │   ├── StartMenu.tsx    # World setup: counts, difficulty, economy modifiers
+│   │   ├── CountryPicker.tsx # Post-generation nation selection and stat comparison
 │   │   ├── WorldMap.tsx     # Interactive map, rival state dossiers, union agenda
 │   │   ├── Governance.tsx   # Tax policies, Laffer curves, cabinet portfolios
 │   │   ├── Budget.tsx       # Line-by-line revenue, expenses, debt limits
@@ -56,7 +59,9 @@ countrystrike/
 ## Core Domain Mechanics
 
 ### 1. Ministries & Cabinet Governance
+
 There are six cabinet ministries:
+
 1. **Finance** (`finance`): Controls tax efficiency and creditworthiness.
 2. **Foreign Affairs** (`foreign`): Governs diplomatic relations and trade bonuses.
 3. **Defense** (`defense`): Manages armed forces readiness, defense power, and upkeep.
@@ -65,6 +70,7 @@ There are six cabinet ministries:
 6. **Health** (`health`): Drives Human Development Index (HDI), population growth, and approval.
 
 #### Ministry Structure & Metrics
+
 - **Institutional Tiers (1–5)**: Each ministry has an upgrade tier (`level`). Higher tiers provide permanent capacity multipliers to that ministry's domain.
 - **Minister Profile**:
   - `skill` (0–100): Determines operational efficiency and execution quality.
@@ -81,7 +87,9 @@ There are six cabinet ministries:
   - **Replace Minister**: Dismisses incumbent and installs a fresh vetted head with low corruption.
 
 ### 2. Ministry Event Set & Sovereign Bailouts
+
 The game features over 600 handcrafted, thematic events located in `src/game/ministryEvents.ts`:
+
 - **100+ Events per Ministry**: Distributed across four thematic categories:
   - `corruption`: Embezzlement, bribery syndicates, procurement kickbacks, ghost payrolls.
   - `betrayal`: Leaked secrets, defection, unauthorized treaties, industrial sabotage, mutiny.
@@ -90,14 +98,27 @@ The game features over 600 handcrafted, thematic events located in `src/game/min
 - **Rarities**: Weighted as `common` (wt: 20), `rare` (wt: 10), `epic` (wt: 4), `legendary` (wt: 1).
 - **Emergency Bailout Requests**: When a rival nation's treasury hits $0M, they send an emergency appeal naming their specific country. Players can grant relief (+35 relations, +5 approval), issue high-interest distress loans, or refuse (triggering heavy sovereign debt surcharges on the broke rival).
 
-### 3. GDP Scaling Engine
-- **Turn Growth Factors**:
-  - `industryGdpBoost = totalIndustryLevel * 0.0004` (sum of extraction & refinement across 8 resources).
-  - `advancesGdpBoost = totalAdvances * 0.0008` (sum of technological breakthrough advancements).
-  - `militaryGdpBoost = min(0.015, log10(militaryPower) * 0.0015)`.
-- **Immediate Action Growth**: Industrial upgrades, breakthrough discoveries (+0.8%), and military recruitment stimulate the economy and immediately increase GDP base value.
+### 3. GDP Growth Engine
 
-### 4. Turn Briefing & Event Modal Architecture
+- **Decomposed Drivers** (`gdpGrowthDrivers` in `selectors.ts`): base expansion, industrial scale (capped at +1.5%/turn), technology advances, military demand, resource production share (`production value / GDP × 0.03`), positive resource surplus, stock buffers, shortages/deficits, reserve depletion, fiscal balance, debt burden, treasury reserve, tax burden, corruption and trait/cabinet effects.
+- **Negative Pressure**:
+  - Debt-to-GDP above 60%: `−0.008` per 100 points; above 120%: an additional `−0.012` per 100 points.
+  - Zero treasury: `−0.005`/turn; treasury below 1% of GDP: `−0.002`/turn.
+  - Each resource in shortage or under four turns of stock cover: share of a `−0.012` penalty.
+  - Reserve depletion below 20 turns of runway: up to `−0.005`/turn.
+- **Positive Pressure**: resource production share, positive resource balances, global stock cover, funded treasury (>20% of GDP) and a positive fiscal balance.
+- **Immediate Action Growth**: Industrial upgrades, breakthrough discoveries (+0.8%), and military recruitment stimulate the economy and immediately increase GDP base value.
+- The Budget page renders every driver, and the Methodology page documents the equations.
+
+### 4. Resource Market & Prices
+
+- **Global market pass** (`runWorldMarket` in `engine.ts`): each turn rival exporters with a surplus are matched to rival importers with a deficit. Contracts last 2–4 turns and move real quantities, money and price coverage.
+- **Price drivers** (`computeMarket` in `selectors.ts`): aggregate supply/demand, per-country deficits, active export volume covering those deficits, global stock cover and reserve depletion.
+- **Reference price**: `basePrice × settings.resourcePrices × pressure`, clamped to 0.35–3.6 pressure. Prices blend toward the target each turn using `settings.marketVolatility` for noise and convergence speed.
+- **Trade screen**: shows the world market clearing table (supply, demand, deficit, exports, coverage, reserve cover, pressure), live player contracts and world contracts.
+
+### 5. Turn Briefing & Event Modal Architecture
+
 - **Once-Per-Turn Execution**: At the start of every turn, the briefing modal opens automatically.
 - **Turn Event Pagination**: When multiple events occur in a turn (e.g. sovereign bailout request + ministry event + national crisis), the modal provides full pagination:
   - Numbered event pills (`1. Country Bailout`, `2. Ministry Upgrade`, `3. Corruption Crisis`).
@@ -113,19 +134,23 @@ The game features over 600 handcrafted, thematic events located in `src/game/min
 ## Best Practices & Development Guidelines
 
 ### 1. State Immutability & Cloning
+
 - All game mutations in `gameStore.ts` must use `cloneGame(current)` which utilizes `structuredClone(game)`.
 - Never mutate state in pure selectors (`selectors.ts`) or event candidate filters (`events.ts`).
 
 ### 2. TypeScript Standards
+
 - Zero `any` policy. All state shapes, checks, and parameters must be explicitly typed using definitions from `src/game/types.ts`.
 - When adding event effects, extend `EventEffects` and handle the corresponding execution in `applyEventEffects` in `src/game/events.ts`.
 
 ### 3. UI & Styling
+
 - Always use CSS variables from `src/styles/tokens.css` (`var(--surface)`, `var(--accent)`, `var(--border)`, `var(--fg)`, etc.).
 - Never hardcode light/dark backgrounds; respect the user's active theme (`Midnight`, `Daylight`, `Latte`, `Frappé`, `Macchiato`, `Mocha`).
 - Modals must be responsive and adapt on mobile (`max-width: 768px`) using CSS grid/flex fallbacks.
 
 ### 4. Testing & Verification Rules
+
 - **Do Not Play The Game for Testing**: Per project instructions, testing must not involve prolonged manual gameplay.
 - **Minimal Action Verification**: Open the app using a headless browser or automated script with the absolute minimum number of clicks (e.g. click "Draw the world" to initialize, verify the modal opens, click one tab, inspect element state, and exit).
 - **Mandatory Checks**:

@@ -10,6 +10,9 @@ import { Icon } from './components/Icon'
 const StartMenu = lazy(() =>
   import('./pages/StartMenu').then((module) => ({ default: module.StartMenu })),
 )
+const CountryPicker = lazy(() =>
+  import('./pages/CountryPicker').then((module) => ({ default: module.CountryPicker })),
+)
 const WorldMap = lazy(() =>
   import('./pages/WorldMap').then((module) => ({ default: module.WorldMap })),
 )
@@ -134,9 +137,15 @@ export default function App() {
       <SiteHeader />
       <main id="main-content" className="site-main">
         {game ? (
-          <Suspense fallback={<PageLoading />}>
-            <GameView />
-          </Suspense>
+          game.status === 'menu' ? (
+            <Suspense fallback={<PageLoading />}>
+              <CountryPicker />
+            </Suspense>
+          ) : (
+            <Suspense fallback={<PageLoading />}>
+              <GameView />
+            </Suspense>
+          )
         ) : (
           <Suspense fallback={<PageLoading />}>
             <StartMenu />

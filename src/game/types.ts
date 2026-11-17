@@ -60,6 +60,18 @@ export interface GameSettings {
   countries: number
   continents: number
   difficulty: Difficulty
+  /** Global multiplier on every resource reference price. */
+  resourcePrices: number
+  /** Higher values shrink starting reserves and stockpiles, tightening supply. */
+  resourceScarcity: number
+  /** Turn-to-turn price noise and convergence speed. */
+  marketVolatility: number
+  /** Starting treasury as a multiple of the normal 6% GDP floor. */
+  startingTreasury: number
+  /** Starting sovereign debt multiplier. */
+  startingDebt: number
+  /** Starting extraction and refinement level multiplier. */
+  startingIndustry: number
 }
 
 export interface TaxRates {
@@ -185,15 +197,36 @@ export interface Country {
 
 export interface TradeDeal {
   id: string
-  countryId: string
   resource: ResourceId
-  direction: 'import' | 'export'
+  buyerId: string
+  sellerId: string
   quantity: number
   unitPrice: number
   pricing: TradePricing
   remainingTurns: number
   auto: boolean
   createdAtTurn: number
+}
+
+export interface MarketSnapshot {
+  resource: ResourceId
+  price: number
+  previousPrice: number
+  changePct: number
+  targetPrice: number
+  supply: number
+  demand: number
+  surplus: number
+  deficit: number
+  exports: number
+  coveredDeficit: number
+  uncoveredDeficit: number
+  stock: number
+  reserves: number
+  reserveTurns: number | null
+  stockTurns: number
+  pressure: number
+  trend: 'rising' | 'falling' | 'stable'
 }
 
 export interface ResourceProduction {
@@ -452,6 +485,7 @@ export interface GameState {
   countries: Country[]
   continents: Continent[]
   prices: Record<ResourceId, number>
+  market: Record<ResourceId, MarketSnapshot>
   deals: TradeDeal[]
   logs: LogEntry[]
   history: HistoryPoint[]

@@ -4,6 +4,7 @@ import {
   ACTIONS_PER_TURN,
   DEAL_DURATION,
   FIRST_NAMES,
+  GOVERNMENT_BY_ID,
   LAST_NAMES,
   RESOURCE_BY_ID,
   RESOURCE_IDS,
@@ -11,6 +12,7 @@ import {
   SAVE_VERSION,
   TRADE_PRICING,
   UNIT_BY_ID,
+  normalizeSettings,
 } from '../game/constants'
 import type {
   AutoDealMode,
@@ -27,6 +29,7 @@ import type {
   PageId,
   ResourceId,
   Toast,
+  TradeDeal,
   TradePricing,
   UnitId,
   BudgetLevel,
@@ -45,6 +48,7 @@ import {
 import {
   combinedModifiers,
   computeBudget,
+  computeMarket,
   debtLimit,
   militaryPower,
   resourceFlows,
@@ -59,6 +63,7 @@ interface GameStore {
   toast: Toast | null
 
   startGame: (settings: GameSettings) => void
+  chooseCountry: (countryId: string) => void
   openNewGame: () => void
   abandonGame: () => void
   setPage: (page: PageId) => void
@@ -112,6 +117,54 @@ const toToast = (message: string, tone: Toast['tone'] = 'neutral'): Toast => ({
 
 const cloneGame = (game: GameState): GameState => structuredClone(game)
 
+function migrateTradeDeals(game: GameState): void {
+  const rawDeals = game.deals as unknown as Array<Record<string, unknown>>
+  if (!Array.isArray(rawDeals) || rawDeals.length === 0) return
+  const playerId = game.playerId || game.countries.find((country) => country.isPlayer)?.id || ''
+  game.deals = rawDeals.map((raw, index) => {
+    if (typeof raw.buyerId === 'string' && typeof raw.sellerId === 'string') {
+      return raw as unknown as TradeDeal
+    }
+    const countryId = typeof raw.countryId === 'string' ? raw.countryId : ''
+    const imports = raw.direction !== 'export'
+    return {
+      id: typeof raw.id === 'string' ? raw.id : `deal-migrated-${index}`,
+      resource: raw.resource as ResourceId,
+      buyerId: imports ? playerId : countryId,
+      sellerId: imports ? countryId : playerId,
+      quantity: Number(raw.quantity ?? 0),
+      unitPrice: Number(raw.unitPrice ?? 0),
+      pricing: (raw.pricing as TradePricing) ?? 'market',
+      remainingTurns: Number(raw.remainingTurns ?? 0),
+      auto: Boolean(raw.auto),
+      createdAtTurn: Number(raw.createdAtTurn ?? 0),
+    }
+  })
+}
+
+function normalizeGameState(game: GameState): GameState {
+  game.settings = normalizeSettings(game.settings)
+  migrateTradeDeals(game)
+  if (
+    !game.market ||
+    RESOURCE_IDS.some((resourceId) => !game.market[resourceId]) ||
+    game.market.water?.price === undefined
+  ) {
+    const living = game.countries.filter((country) => country.status === 'alive')
+    const flows = new Map(
+      living.map((country) => [country.id, resourceFlows(country, game.deals, game.prices)]),
+    )
+    game.market = computeMarket(
+      living,
+      flows,
+      game.deals,
+      game.prices,
+      game.settings.resourcePrices,
+    )
+  }
+  return game
+}
+
 const announce = (
   set: (partial: Partial<GameStore>) => void,
   message: string,
@@ -155,9 +208,52 @@ export const useGame = create<GameStore>()(
 
       startGame: (settings) => {
         const game = generateWorld(settings)
-        seedHistory(game)
         set({ game, page: 'map', modal: null })
-        announce(set, `A new world awaits. ${getPlayer(game).name} is yours to run.`, 'positive')
+        announce(set, 'World generated. Choose the nation you want to lead.', 'positive')
+      },
+
+      chooseCountry: (countryId) => {
+        const current = get().game
+        if (!current || current.status !== 'menu') return
+        const chosen = current.countries.find((country) => country.id === countryId)
+        if (!chosen) return
+        const game = cloneGame(current)
+        const country = game.countries.find((entry) => entry.id === countryId)!
+        for (const entry of game.countries) entry.isPlayer = false
+        country.isPlayer = true
+        country.relations = 100
+        country.externalApproval = 0
+        country.stats.treasury = Math.max(
+          country.stats.treasury,
+          country.stats.gdp * 0.06 * game.settings.startingTreasury,
+        )
+        country.military.soldiers = Math.max(country.military.soldiers, 24_000)
+        country.military.tanks = Math.max(country.military.tanks, 40)
+        country.military.jets = Math.max(country.military.jets, 4)
+        for (const entry of game.countries) {
+          if (entry.id !== country.id) entry.relations = clamp(entry.relations, -100, 100)
+        }
+        game.playerId = country.id
+        game.status = 'playing'
+        game.turn = 1
+        game.actionsLeft = ACTIONS_PER_TURN
+        game.eventQueue = ['inauguration']
+        seedHistory(game)
+        pushLog(
+          game,
+          'governance',
+          `${country.name} enters a new political era under a ${
+            GOVERNMENT_BY_ID[country.government]?.name ?? 'new government'
+          }.`,
+          country,
+          'positive',
+        )
+        set({ game, page: 'map', modal: null })
+        announce(
+          set,
+          `${country.name} is yours. Ten actions per turn. Choose carefully.`,
+          'positive',
+        )
       },
 
       openNewGame: () => set({ modal: { kind: 'new-game' } }),
@@ -380,7 +476,11 @@ export const useGame = create<GameStore>()(
         }
         const cost = Math.max(15, player.stats.gdp * 0.0008)
         if (player.stats.treasury < cost) {
-          announce(set, `Need ${formatMoney(cost)} for an official anti-corruption audit.`, 'negative')
+          announce(
+            set,
+            `Need ${formatMoney(cost)} for an official anti-corruption audit.`,
+            'negative',
+          )
           return
         }
         const min = player.ministries[id]
@@ -423,7 +523,11 @@ export const useGame = create<GameStore>()(
         }
         const cost = Math.max(40, player.stats.gdp * 0.0025 * currentLevel)
         if (player.stats.treasury < cost) {
-          announce(set, `Need ${formatMoney(cost)} to upgrade ${titleCase(id)} ministry to Tier ${currentLevel + 1}.`, 'negative')
+          announce(
+            set,
+            `Need ${formatMoney(cost)} to upgrade ${titleCase(id)} ministry to Tier ${currentLevel + 1}.`,
+            'negative',
+          )
           return
         }
         min.level = currentLevel + 1
@@ -1037,7 +1141,10 @@ export const useGame = create<GameStore>()(
           )
         }
         player.military[unitId] += qty
-        player.stats.gdp = Math.max(100, roundTo(player.stats.gdp * (1 + 0.0003 * Math.min(25, qty)), 1))
+        player.stats.gdp = Math.max(
+          100,
+          roundTo(player.stats.gdp * (1 + 0.0003 * Math.min(25, qty)), 1),
+        )
         game.actionsLeft -= 1
         pushLog(
           game,
@@ -1142,9 +1249,8 @@ export const useGame = create<GameStore>()(
             return
           }
           const available =
-            playerFlows[resourceId].stock +
-            playerFlows[resourceId].production -
-            playerFlows[resourceId].consumption
+            Math.max(0, playerFlows[resourceId].finalBalance) +
+            Math.max(0, playerFlows[resourceId].stock * 0.2)
           if (available < qty) {
             announce(
               set,
@@ -1164,9 +1270,9 @@ export const useGame = create<GameStore>()(
         }
         game.deals.push({
           id: makeId('deal'),
-          countryId,
           resource: resourceId,
-          direction,
+          buyerId: direction === 'import' ? player.id : countryId,
+          sellerId: direction === 'import' ? countryId : player.id,
           quantity: qty,
           unitPrice: roundTo(price, 2),
           pricing,
@@ -1198,7 +1304,9 @@ export const useGame = create<GameStore>()(
         const deal = game.deals.find((entry) => entry.id === dealId)
         if (!deal) return
         game.deals = game.deals.filter((entry) => entry.id !== dealId)
-        const partner = game.countries.find((country) => country.id === deal.countryId)
+        const playerId = getPlayer(game).id
+        const partnerId = deal.buyerId === playerId ? deal.sellerId : deal.buyerId
+        const partner = game.countries.find((country) => country.id === partnerId)
         pushLog(
           game,
           'economy',
@@ -1549,6 +1657,11 @@ export const useGame = create<GameStore>()(
       name: SAVE_KEY,
       version: SAVE_VERSION,
       partialize: (state) => ({ game: state.game, page: state.page }),
+      migrate: (persistedState: unknown) => {
+        const persisted = persistedState as { game?: GameState | null; page?: PageId }
+        if (persisted.game) normalizeGameState(persisted.game)
+        return { game: persisted.game ?? null, page: persisted.page ?? 'map' }
+      },
     },
   ),
 )

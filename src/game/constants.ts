@@ -23,7 +23,7 @@ export const GITHUB_URL = 'https://github.com/BanguDevClub/countrystrike'
 export const ACTIONS_PER_TURN = 10
 export const SAVE_KEY = 'countrystrike-save'
 export const PREFS_KEY = 'countrystrike-prefs'
-export const SAVE_VERSION = 1
+export const SAVE_VERSION = 2
 export const HISTORY_LIMIT = 80
 
 export const DEFAULT_SETTINGS: GameSettings = {
@@ -32,6 +32,26 @@ export const DEFAULT_SETTINGS: GameSettings = {
   countries: 14,
   continents: 3,
   difficulty: 'normal',
+  resourcePrices: 1,
+  resourceScarcity: 1,
+  marketVolatility: 1,
+  startingTreasury: 1,
+  startingDebt: 1,
+  startingIndustry: 1,
+}
+
+export const SETTINGS_LIMITS = {
+  resourcePrices: { min: 0.5, max: 3, step: 0.1 },
+  resourceScarcity: { min: 0.5, max: 2.5, step: 0.1 },
+  marketVolatility: { min: 0, max: 2, step: 0.1 },
+  startingTreasury: { min: 0.5, max: 2.5, step: 0.1 },
+  startingDebt: { min: 0.25, max: 2, step: 0.05 },
+  startingIndustry: { min: 0.5, max: 2, step: 0.1 },
+} as const
+
+/** Older saves and hand-edited states may miss the economy tweak fields. */
+export function normalizeSettings(settings: Partial<GameSettings> | undefined): GameSettings {
+  return { ...DEFAULT_SETTINGS, ...settings }
 }
 
 export const THEMES: { id: ThemeId; name: string; family: string; swatch: string; bg: string }[] = [
@@ -66,7 +86,7 @@ export const RESOURCES: ResourceDefinition[] = [
     icon: 'Droplets',
     colorVar: '--res-water',
     unit: 'km³',
-    basePrice: 2,
+    basePrice: 10,
     capacityPerLevel: 32,
     civilPerMillion: 3,
     blurb: 'Fresh water for people, farms and industry. The quiet foundation of everything.',
@@ -78,7 +98,7 @@ export const RESOURCES: ResourceDefinition[] = [
     icon: 'Zap',
     colorVar: '--res-energy',
     unit: 'TWh',
-    basePrice: 18,
+    basePrice: 90,
     capacityPerLevel: 60,
     civilPerMillion: 6,
     blurb: 'Grid capacity and fuel. Industry stalls without a reliable baseload.',
@@ -90,7 +110,7 @@ export const RESOURCES: ResourceDefinition[] = [
     icon: 'Wheat',
     colorVar: '--res-agriculture',
     unit: 'Mt',
-    basePrice: 12,
+    basePrice: 60,
     capacityPerLevel: 38,
     civilPerMillion: 4,
     blurb: 'Staple crops and food security. Cheap to expand, dangerous to lose.',
@@ -102,7 +122,7 @@ export const RESOURCES: ResourceDefinition[] = [
     icon: 'Beef',
     colorVar: '--res-livestock',
     unit: 'Mt',
-    basePrice: 30,
+    basePrice: 150,
     capacityPerLevel: 17,
     civilPerMillion: 1.8,
     blurb: 'Protein production and rural employment. Weather-sensitive and tradeable.',
@@ -114,7 +134,7 @@ export const RESOURCES: ResourceDefinition[] = [
     icon: 'Fuel',
     colorVar: '--res-oil',
     unit: 'Mbbl',
-    basePrice: 180,
+    basePrice: 900,
     capacityPerLevel: 11,
     civilPerMillion: 1.2,
     blurb: 'The logistics resource. Armies, ships and aircraft burn through it.',
@@ -126,7 +146,7 @@ export const RESOURCES: ResourceDefinition[] = [
     icon: 'Pickaxe',
     colorVar: '--res-metal',
     unit: 'kt',
-    basePrice: 120,
+    basePrice: 600,
     capacityPerLevel: 4.5,
     civilPerMillion: 0.5,
     blurb: 'Steel, alloys and shipyards. Tanks and infrastructure consume it.',
@@ -138,7 +158,7 @@ export const RESOURCES: ResourceDefinition[] = [
     icon: 'Gem',
     colorVar: '--res-rareEarth',
     unit: 'kt',
-    basePrice: 900,
+    basePrice: 4500,
     capacityPerLevel: 1.1,
     civilPerMillion: 0.1,
     blurb: 'Magnets, electronics and precision weapons. Scarce, pricey and strategic.',
@@ -150,7 +170,7 @@ export const RESOURCES: ResourceDefinition[] = [
     icon: 'Atom',
     colorVar: '--res-uranium',
     unit: 't',
-    basePrice: 700,
+    basePrice: 3500,
     capacityPerLevel: 0.35,
     civilPerMillion: 0.02,
     blurb: 'Reactor fuel and the core of a nuclear deterrent. Hard to find, harder to refine.',

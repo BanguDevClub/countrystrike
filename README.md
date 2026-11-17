@@ -35,20 +35,27 @@ world and its history are persisted in `localStorage` after every action.
 
 - **A living procedural world** — 10–20 nations across 1–5 continents, each with a culture,
   biome, weather pattern and two additional national traits. Every trait gives a buff, a debuff
-  or a mixed modifier.
+  or a mixed modifier. Generate the world first, then inspect every economy on the map and
+  choose the nation you want to lead.
 - **Ten actions per turn** — every ministerial decision, industrial operation, recruitment,
   trade contract, diplomatic mission and war declaration is budgeted in actions.
 - **A budget with teeth** — corporate and income taxes, import tariffs, resource royalties,
   six ministries, military upkeep, public services, debt service and trade contracts. The
-  Laffer curve is modelled, not decorative.
+  Laffer curve is modelled, not decorative. GDP growth is decomposed into drivers: debt,
+  zero treasury, depleted reserves and shortages drag it down; resource output, stockpiles and
+  surpluses lift it.
 - **Eight resource industries** — water, energy, agriculture, livestock, oil, metal, rare earth
   and uranium. Tiered d6 upgrades (1 fail, 2–5 improvements, 6 advancement) and single d10 research
-  stimulus (1 fail, 2–9 bonuses on ext & ref, 10 +20% & advancement).
+  stimulus (1 fail, 2–9 bonuses on ext & ref, 10 +20% & advancement). Production, stockpiles and
+  known reserves are valued against GDP on the Industry screen.
 - **A composite world ranking** — treasure, debt, GDP, population, military power, approval,
   HDI, Gini, violence and depression become a weighted 0–100 score with historical charts.
-- **Trade as foreign policy** — regional balances, supply-and-demand prices, 3-turn minimal
-  auto-deals enhancing relations each turn with all countries in need, 5-turn manual contracts,
-  price posture, and diplomatic consequences.
+- **Trade as foreign policy** — rival governments match surpluses to deficits through a world
+  market pass; prices respond to aggregate deficits, the export volume that actually covers them
+  and reserve scarcity. Manual contracts, 3-turn auto-deals, price posture and diplomatic
+  consequences sit on top.
+- **World and economy modifiers** — resource prices, scarcity, market volatility, starting
+  treasury, starting debt and starting industry can be tuned before generation.
 - **Two routes to the end** — reach 100 relations, unlock external approval, campaign it to 100
   and merge a country; or destroy every rival by war. Win by leaving one state standing.
 - **Six themes** — Midnight, Daylight and the four official Catppuccin flavours, with accessible

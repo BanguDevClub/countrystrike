@@ -175,7 +175,7 @@ export function SiteHeader() {
     <header className="site-header">
       <div className="container header-main">
         <Brand onClick={game ? () => goTo('map') : undefined} />
-        {game && player ? (
+        {game && game.status !== 'menu' && player ? (
           <div className="header-status">
             <div className="turn-cluster">
               <span className="turn-chip">
@@ -281,7 +281,7 @@ export function SiteHeader() {
           </a>
         </div>
       </div>
-      {game && (
+      {game && game.status !== 'menu' && (
         <nav className="container nav-tabs" aria-label="Game sections">
           {PAGES.map((entry) => (
             <button
@@ -319,7 +319,7 @@ export function SiteFooter() {
           </span>
         </div>
         <div className="footer-links">
-          {game && (
+          {game && game.status !== 'menu' && (
             <button type="button" className="footer-link" onClick={() => setPage('methodology')}>
               Methodology
             </button>

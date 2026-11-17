@@ -1,15 +1,16 @@
 import { useEffect, useMemo, useState } from 'react'
-import {
-  AUTO_DEAL_MODES,
-  GOVERNMENT_BY_ID,
-  RESOURCES,
-  RESOURCE_IDS,
-  TRADE_PRICING,
-} from '../game/constants'
-import type { AutoDealMode, Country, ResourceFlow, ResourceId, TradePricing } from '../game/types'
+import { AUTO_DEAL_MODES, GOVERNMENT_BY_ID, RESOURCES, TRADE_PRICING } from '../game/constants'
+import type {
+  AutoDealMode,
+  Country,
+  ResourceFlow,
+  ResourceId,
+  TradeDeal,
+  TradePricing,
+} from '../game/types'
 import { useGame, selectPlayer } from '../state/gameStore'
-import { resourceFlows } from '../game/selectors'
-import { formatMoney, formatPercent, formatQuantity } from '../game/format'
+import { computeMarket, resourceFlows } from '../game/selectors'
+import { formatMoney, formatPercent, formatQuantity, formatTurnRunway } from '../game/format'
 import { Badge, EmptyState, PageHeader, StatTile, SectionCard } from '../components/ui'
 import { Icon } from '../components/Icon'
 import { Flag } from '../components/Flag'
@@ -25,6 +26,12 @@ interface SelectedTrade {
 }
 
 const PRICING_ORDER: TradePricing[] = ['below', 'market', 'above']
+
+const dealPartnerId = (deal: TradeDeal, playerId: string): string =>
+  deal.buyerId === playerId ? deal.sellerId : deal.buyerId
+
+const dealDirection = (deal: TradeDeal, playerId: string): TradeDirection =>
+  deal.buyerId === playerId ? 'import' : 'export'
 
 function TradeDealModal({ selected, onClose }: { selected: SelectedTrade; onClose: () => void }) {
   const game = useGame((state) => state.game)
@@ -49,8 +56,8 @@ function TradeDealModal({ selected, onClose }: { selected: SelectedTrade; onClos
   const projectedRelations = Math.min(100, partner.relations + relationshipGain)
   const available =
     selected.direction === 'import'
-      ? Math.max(1, Math.floor(partnerFlow.finalBalance + partnerFlow.stock * 0.2))
-      : Math.max(1, Math.floor(playerFlow.stock + playerFlow.production - playerFlow.consumption))
+      ? Math.max(0, Math.floor(partnerFlow.finalBalance + partnerFlow.stock * 0.2))
+      : Math.max(0, Math.floor(Math.max(0, playerFlow.finalBalance) + playerFlow.stock * 0.2))
   const canSign =
     game.actionsLeft > 0 &&
     quantity > 0 &&
@@ -208,32 +215,42 @@ export function Trade() {
     )
   }, [game])
 
-  const globalBalances = useMemo(() => {
-    const supply: Record<ResourceId, number> = {
-      ...Object.fromEntries(RESOURCE_IDS.map((id) => [id, 0])),
-    } as Record<ResourceId, number>
-    const demand: Record<ResourceId, number> = {
-      ...Object.fromEntries(RESOURCE_IDS.map((id) => [id, 0])),
-    } as Record<ResourceId, number>
-    for (const flow of flowsByCountry.values()) {
-      for (const id of RESOURCE_IDS) {
-        supply[id] += flow[id].production + flow[id].imports
-        demand[id] += flow[id].consumption + flow[id].exports
-      }
-    }
-    return { supply, demand }
-  }, [flowsByCountry])
+  const market = useMemo(() => {
+    if (!game) return null
+    const countries = game.countries.filter((country) => country.status === 'alive')
+    return computeMarket(
+      countries,
+      flowsByCountry,
+      game.deals,
+      game.prices,
+      game.settings.resourcePrices,
+    )
+  }, [game, flowsByCountry])
 
-  if (!game || !player) return null
+  if (!game || !player || !market) return null
 
   const previousPoint = game.history.at(-1)
   const previousPrevious = game.history.at(-2)
   const deals = game.deals
-  const importCost = deals
-    .filter((deal) => deal.direction === 'import')
+  const playerDeals = deals.filter(
+    (deal) => deal.buyerId === player.id || deal.sellerId === player.id,
+  )
+  const worldDeals = deals.filter(
+    (deal) => deal.buyerId !== player.id && deal.sellerId !== player.id,
+  )
+  const countryById = new Map(game.countries.map((country) => [country.id, country]))
+  const sortedWorldDeals = [...worldDeals].sort(
+    (a, b) => b.quantity * b.unitPrice - a.quantity * a.unitPrice,
+  )
+  const worldTradeValue = worldDeals.reduce(
+    (total, deal) => total + deal.quantity * deal.unitPrice,
+    0,
+  )
+  const importCost = playerDeals
+    .filter((deal) => deal.buyerId === player.id)
     .reduce((total, deal) => total + deal.quantity * deal.unitPrice, 0)
-  const exportRevenue = deals
-    .filter((deal) => deal.direction === 'export')
+  const exportRevenue = playerDeals
+    .filter((deal) => deal.sellerId === player.id)
     .reduce((total, deal) => total + deal.quantity * deal.unitPrice, 0)
   const activeCountries = game.countries
     .filter((country) => country.status === 'alive')
@@ -269,9 +286,9 @@ export function Trade() {
 
       <div className="stat-grid stat-grid-4">
         <StatTile
-          label="Active contracts"
-          value={deals.length}
-          hint={`${deals.filter((deal) => deal.auto).length} automated`}
+          label="Your contracts"
+          value={playerDeals.length}
+          hint={`${playerDeals.filter((deal) => deal.auto).length} automated · ${worldDeals.length} world deals`}
           icon="Handshake"
           tone="accent"
         />
@@ -310,13 +327,14 @@ export function Trade() {
         <div className="price-strip">
           {RESOURCES.map((resource) => {
             const price = game.prices[resource.id]
+            const snapshot = market[resource.id]
             const oldPrice =
               previousPoint && previousPrevious
                 ? previousPrevious.prices[resource.id]
                 : previousPoint?.prices[resource.id]
             const delta = oldPrice ? ((price - oldPrice) / oldPrice) * 100 : 0
-            const supply = globalBalances.supply[resource.id]
-            const demand = globalBalances.demand[resource.id]
+            const coverage =
+              snapshot.deficit > 0 ? (snapshot.coveredDeficit / snapshot.deficit) * 100 : 100
             return (
               <button
                 key={resource.id}
@@ -326,6 +344,7 @@ export function Trade() {
                   setFocusResource((current) => (current === resource.id ? 'all' : resource.id))
                 }
                 aria-pressed={focusResource === resource.id}
+                title={`Deficit ${formatQuantity(snapshot.deficit)} · exports covering ${formatPercent(coverage, 0)}`}
               >
                 <span className="price-card-top">
                   <span style={{ color: `var(${resource.colorVar})` }}>
@@ -344,15 +363,91 @@ export function Trade() {
                   <small> / {resource.unit}</small>
                 </span>
                 <span className="price-supply">
-                  <span>S {formatQuantity(supply)}</span>
-                  <span>D {formatQuantity(demand)}</span>
-                  <span className={demand > supply ? 'text-negative' : 'text-positive'}>
-                    {demand > supply ? 'tight' : 'ample'}
+                  <span>S {formatQuantity(snapshot.supply)}</span>
+                  <span>D {formatQuantity(snapshot.demand)}</span>
+                  <span
+                    className={snapshot.uncoveredDeficit > 0 ? 'text-negative' : 'text-positive'}
+                  >
+                    Def {formatQuantity(snapshot.uncoveredDeficit)}
                   </span>
+                  <span className="text-muted">X {formatQuantity(snapshot.exports)}</span>
                 </span>
               </button>
             )
           })}
+        </div>
+      </SectionCard>
+
+      <SectionCard
+        title="World market clearing"
+        subtitle="Deficits push prices up. Export contracts that actually reach deficit nations relieve the pressure; dwindling reserves and thin stockpiles add scarcity."
+        action={
+          <Badge tone="accent" icon="Coins">
+            {worldDeals.length} inter-state contracts
+          </Badge>
+        }
+      >
+        <div className="table-wrap trade-table-wrap">
+          <table className="trade-table market-table">
+            <thead>
+              <tr>
+                <th className="sticky-col">Resource</th>
+                <th className="num">Reference</th>
+                <th className="num">Supply</th>
+                <th className="num">Demand</th>
+                <th className="num">Deficit</th>
+                <th className="num">Exported</th>
+                <th className="num">Coverage</th>
+                <th className="num">Reserve cover</th>
+                <th className="num">Pressure</th>
+              </tr>
+            </thead>
+            <tbody>
+              {RESOURCES.map((resource) => {
+                const snapshot = market[resource.id]
+                const coverage =
+                  snapshot.deficit > 0 ? (snapshot.coveredDeficit / snapshot.deficit) * 100 : 100
+                return (
+                  <tr key={resource.id}>
+                    <td className="sticky-col">
+                      <span className="country-cell-name">
+                        <span style={{ color: `var(${resource.colorVar})` }}>
+                          <Icon name={resource.icon} size={15} />
+                        </span>
+                        <span>
+                          <strong>{resource.name}</strong>
+                          <small>{resource.category}</small>
+                        </span>
+                      </span>
+                    </td>
+                    <td className="num">{formatMoney(snapshot.price)}</td>
+                    <td className="num">{formatQuantity(snapshot.supply)}</td>
+                    <td className="num">{formatQuantity(snapshot.demand)}</td>
+                    <td className="num text-negative">{formatQuantity(snapshot.deficit)}</td>
+                    <td className="num">{formatQuantity(snapshot.exports)}</td>
+                    <td className="num">
+                      <Badge
+                        tone={coverage >= 80 ? 'positive' : coverage >= 40 ? 'warning' : 'negative'}
+                      >
+                        {formatPercent(coverage, 0)}
+                      </Badge>
+                    </td>
+                    <td className="num">{formatTurnRunway(snapshot.reserveTurns)}</td>
+                    <td className="num">{snapshot.pressure.toFixed(2)}×</td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+        </div>
+        <div className="trade-legend-row">
+          <span>
+            <span className="balance-cell positive" /> Coverage: share of the global deficit
+            supplied by real export contracts
+          </span>
+          <span className="text-muted">
+            Pressure above 1.00× indicates upward price force from deficits and scarcity.
+          </span>
         </div>
       </SectionCard>
 
@@ -479,11 +574,15 @@ export function Trade() {
 
       <div className="trade-bottom-grid">
         <SectionCard
-          title="Active contracts"
+          title="Your contracts"
           subtitle="Contracts settle each turn until they expire or are cancelled."
-          action={<Badge tone={deals.length > 0 ? 'accent' : 'muted'}>{deals.length} active</Badge>}
+          action={
+            <Badge tone={playerDeals.length > 0 ? 'accent' : 'muted'}>
+              {playerDeals.length} active
+            </Badge>
+          }
         >
-          {deals.length === 0 ? (
+          {playerDeals.length === 0 ? (
             <EmptyState
               icon="HandCoins"
               title="No trade contracts"
@@ -491,20 +590,23 @@ export function Trade() {
             />
           ) : (
             <div className="deal-list">
-              {deals.map((deal) => {
-                const partner = game.countries.find((country) => country.id === deal.countryId)
+              {playerDeals.map((deal) => {
+                const partner = game.countries.find(
+                  (country) => country.id === dealPartnerId(deal, player.id),
+                )
+                const direction = dealDirection(deal, player.id)
                 const def = RESOURCES.find((resource) => resource.id === deal.resource)!
                 return (
                   <div key={deal.id} className="deal-row">
                     <span className="deal-direction">
                       <Icon
-                        name={deal.direction === 'import' ? 'ArrowDownRight' : 'ArrowUpRight'}
+                        name={direction === 'import' ? 'ArrowDownRight' : 'ArrowUpRight'}
                         size={17}
                       />
                     </span>
                     <div className="deal-copy">
                       <strong>
-                        {deal.direction === 'import' ? 'Buy' : 'Sell'} {def.name.toLowerCase()}
+                        {direction === 'import' ? 'Buy' : 'Sell'} {def.name.toLowerCase()}
                         {partner ? ` · ${partner.name}` : ''}
                       </strong>
                       <span>
@@ -515,9 +617,9 @@ export function Trade() {
                     </div>
                     <div className="deal-net">
                       <strong
-                        className={deal.direction === 'export' ? 'text-positive' : 'text-negative'}
+                        className={direction === 'export' ? 'text-positive' : 'text-negative'}
                       >
-                        {deal.direction === 'export' ? '+' : '−'}
+                        {direction === 'export' ? '+' : '−'}
                         {formatMoney(deal.quantity * deal.unitPrice)}
                       </strong>
                       {deal.auto && <Badge tone="accent">auto</Badge>}
@@ -592,6 +694,95 @@ export function Trade() {
           </div>
         </SectionCard>
       </div>
+
+      <SectionCard
+        title="World contracts"
+        subtitle="Every active deal between rival governments. These settlements move their resources, budgets and the world market."
+        action={
+          <div className="trade-filters">
+            <Badge tone={worldDeals.length > 0 ? 'accent' : 'muted'} icon="Globe">
+              {worldDeals.length} deals
+            </Badge>
+            <Badge tone="neutral" icon="Coins">
+              {formatMoney(worldTradeValue)} / turn
+            </Badge>
+          </div>
+        }
+      >
+        {worldDeals.length === 0 ? (
+          <EmptyState
+            icon="Globe"
+            title="No inter-state contracts"
+            body="Rival governments sign world-market deals when one has a surplus and another is in deficit."
+          />
+        ) : (
+          <>
+            <div className="table-wrap">
+              <table className="trade-table world-contracts-table">
+                <thead>
+                  <tr>
+                    <th>Buyer</th>
+                    <th>Seller</th>
+                    <th>Resource</th>
+                    <th className="num">Quantity / turn</th>
+                    <th className="num">Unit price</th>
+                    <th className="num">Value / turn</th>
+                    <th className="num">Turns left</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {sortedWorldDeals.map((deal) => {
+                    const buyer = countryById.get(deal.buyerId)
+                    const seller = countryById.get(deal.sellerId)
+                    const definition = RESOURCES.find((resource) => resource.id === deal.resource)
+                    if (!buyer || !seller || !definition) return null
+                    return (
+                      <tr key={deal.id}>
+                        <td>
+                          <span className="country-cell-name">
+                            <Flag seed={buyer.flagSeed} code={buyer.code} size="sm" />
+                            <span>
+                              <strong>{buyer.name}</strong>
+                              <small>{buyer.code}</small>
+                            </span>
+                          </span>
+                        </td>
+                        <td>
+                          <span className="country-cell-name">
+                            <Flag seed={seller.flagSeed} code={seller.code} size="sm" />
+                            <span>
+                              <strong>{seller.name}</strong>
+                              <small>{seller.code}</small>
+                            </span>
+                          </span>
+                        </td>
+                        <td>
+                          <span
+                            className="resource-inline"
+                            style={{ color: `var(${definition.colorVar})` }}
+                          >
+                            <Icon name={definition.icon} size={14} /> {definition.name}
+                          </span>
+                        </td>
+                        <td className="num">
+                          {formatQuantity(deal.quantity)} {definition.unit}
+                        </td>
+                        <td className="num">{formatMoney(deal.unitPrice)}</td>
+                        <td className="num">{formatMoney(deal.quantity * deal.unitPrice)}</td>
+                        <td className="num">{deal.remainingTurns}</td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
+            <p className="table-note">
+              These contracts are signed by the world market pass, not by you. Their export volume
+              is what covers part of the global deficit shown above.
+            </p>
+          </>
+        )}
+      </SectionCard>
 
       <SectionCard
         title="Trade terms & diplomacy"

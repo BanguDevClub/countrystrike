@@ -265,8 +265,9 @@ export const WorldMapCanvas = memo(function WorldMapCanvas({
       {showRoutes && (
         <g className="map-routes" aria-hidden="true">
           {routes.map((route) => {
-            const dimmed = !visibleIds.has(route.countryId)
-            const focused = hoveredId === route.countryId
+            const routeIds = route.countryIds ?? [route.countryId]
+            const dimmed = routeIds.every((id) => !visibleIds.has(id))
+            const focused = hoveredId !== null && routeIds.includes(hoveredId)
             return (
               <g
                 key={route.id}
@@ -277,7 +278,7 @@ export const WorldMapCanvas = memo(function WorldMapCanvas({
                 <path d={route.d} className="route-halo" />
                 <path d={route.d} className="route-line" />
                 <circle
-                  r="2.6"
+                  r={route.kind === 'world' ? 2 : 2.6}
                   className="route-pulse"
                   style={{
                     offsetPath: `path("${route.d}")`,

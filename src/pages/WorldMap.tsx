@@ -386,6 +386,11 @@ export function WorldMap() {
                     <span className="route-swatch route-swatch-mixed" /> Both ways
                   </span>
                 )}
+                {routes.some((route) => route.kind === 'world') && (
+                  <span>
+                    <span className="route-swatch route-swatch-world" /> World trade
+                  </span>
+                )}
               </>
             )}
             {showRoutes && routes.length === 0 && (

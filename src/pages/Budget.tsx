@@ -15,13 +15,22 @@ import {
 import { RESOURCES, RESOURCE_IDS } from '../game/constants'
 import type { ResourceId } from '../game/types'
 import { useGame, selectPlayer } from '../state/gameStore'
-import { computeBudget, debtLimit, debtToGdp, resourceFlows } from '../game/selectors'
+import {
+  computeBudget,
+  debtLimit,
+  debtToGdp,
+  gdpGrowthDrivers,
+  gdpGrowthTotal,
+  resourceFlows,
+  resourceValuation,
+} from '../game/selectors'
 import {
   formatMoney,
   formatNumber,
   formatPercent,
   formatQuantity,
   formatReserveRunway,
+  formatSignedPercent,
   formatStockRunway,
 } from '../game/format'
 import { PageHeader, SectionCard, StatTile, Badge, ProgressBar, EmptyState } from '../components/ui'
@@ -111,6 +120,12 @@ export function Budget() {
 
   if (!game || !player || !budget || !flows || !resource) return null
 
+  const gdpDrivers = gdpGrowthDrivers(player, flows, budget)
+  const gdpGrowth = gdpGrowthTotal(gdpDrivers)
+  const valuation = resourceValuation(flows)
+  const resourceShare = (valuation.productionValue / Math.max(1, player.stats.gdp)) * 100
+  const driverScale = Math.max(0.005, ...gdpDrivers.map((driver) => Math.abs(driver.value)))
+
   const limit = debtLimit(player)
   const maxLedger = Math.max(budget.totalRevenue, budget.totalExpenses, 1)
   const currentResourceValue = resource.production * resource.price
@@ -164,6 +179,68 @@ export function Budget() {
           tone="accent"
         />
       </div>
+
+      <SectionCard
+        title="GDP drivers"
+        subtitle="Growth is not a single multiplier. Resource output, deficits, reserves, debt and fiscal pressure all pull on the economy each turn."
+        action={
+          <Badge tone={gdpGrowth >= 0 ? 'positive' : 'negative'} icon="ChartLine">
+            {formatSignedPercent(gdpGrowth * 100, 2)} per turn
+          </Badge>
+        }
+      >
+        <div className="gdp-driver-layout">
+          <div className="gdp-driver-list">
+            {gdpDrivers.map((driver) => {
+              const width = (Math.abs(driver.value) / driverScale) * 100
+              return (
+                <div
+                  key={driver.key}
+                  className={`gdp-driver-row ${driver.value >= 0 ? 'is-positive' : 'is-negative'}`}
+                >
+                  <span>{driver.label}</span>
+                  <div className="gdp-driver-bar">
+                    <span style={{ width: `${Math.max(1.5, width)}%` }} />
+                  </div>
+                  <strong>{formatSignedPercent(driver.value * 100, 2)}</strong>
+                </div>
+              )
+            })}
+          </div>
+          <aside className="gdp-driver-summary">
+            <span className="gdp-summary-kicker">Projected before random shock</span>
+            <strong className={gdpGrowth >= 0 ? 'text-positive' : 'text-negative'}>
+              {formatSignedPercent(gdpGrowth * 100, 2)}
+            </strong>
+            <p>
+              The engine adds a small random term and clamps the final rate between −6.00% and
+              +8.00% per turn.
+            </p>
+            <div className="gdp-summary-row">
+              <span>Resource production</span>
+              <strong>{formatMoney(valuation.productionValue)}</strong>
+            </div>
+            <div className="gdp-summary-row">
+              <span>Production vs GDP</span>
+              <strong>{formatPercent(resourceShare, 1)}</strong>
+            </div>
+            <div className="gdp-summary-row">
+              <span>Reserve wealth</span>
+              <strong>{formatMoney(valuation.reserveValue)}</strong>
+            </div>
+            <div className="gdp-summary-row">
+              <span>Debt-to-GDP</span>
+              <strong>{formatPercent(debtToGdp(player))}</strong>
+            </div>
+            <div className="gdp-summary-row">
+              <span>Treasury / GDP</span>
+              <strong>
+                {formatPercent((player.stats.treasury / Math.max(1, player.stats.gdp)) * 100, 1)}
+              </strong>
+            </div>
+          </aside>
+        </div>
+      </SectionCard>
 
       <div className="budget-main-grid">
         <SectionCard

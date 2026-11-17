@@ -102,6 +102,7 @@ export function Methodology() {
           ['#world', 'World generation'],
           ['#resources', 'Resource flow'],
           ['#prices', 'Market prices'],
+          ['#gdp', 'GDP growth'],
           ['#fiscal', 'Taxes & Laffer'],
           ['#budget', 'Budget'],
           ['#military', 'Military power'],
@@ -184,17 +185,22 @@ export function Methodology() {
             </p>
             <p>
               The map is generated with a seeded Voronoi partition of each continent. Country GDP
-              starts as population × GDP per capita; treasury starts at 3.5–11% of GDP and debt at
-              25–82% of GDP.
+              starts as population × GDP per capita. The setup screen scales the economy: resource
+              prices multiply every reference price, scarcity shrinks reserves and stockpiles,
+              starting treasury and debt shift the opening balance sheet, and starting industry
+              scales extraction and refinement capacity.
             </p>
           </div>
           <div className="method-formula-col">
             <Formula tex={String.raw`\text{GDP}_0 = P_0 \times \text{GDP per capita}_0`} />
             <Formula
-              tex={String.raw`\text{Reserves}_0 = L_e \times C_{\text{res}} \times R,\quad R \in [55,190] \text{ (commodity)}`}
+              tex={String.raw`\text{Reserves}_0 = \frac{L_e \times C_{\text{res}} \times R}{S_{\text{scarcity}}},\quad R \in [55,190]`}
             />
             <Formula
-              tex={String.raw`\text{Extraction}_0 \approx \max(0.7C,\ \text{consumption} \times [0.72,1.38])`}
+              tex={String.raw`\text{Extraction}_0 \approx \max(0.7C,\ \text{consumption} \times [0.72,1.38]) \cdot I_{\text{industry}}`}
+            />
+            <Formula
+              tex={String.raw`\text{Treasury}_0 \propto [3.5\%, 11\%]\,\text{GDP}\cdot M_{\text{treasury}}`}
             />
           </div>
         </div>
@@ -326,32 +332,57 @@ export function Methodology() {
       <MethodSection
         id="prices"
         title="Market prices"
-        subtitle="A smoothed supply-and-demand reference price. Strategic scarcity is expressed in the base price."
+        subtitle="Deficits drive prices. Real export contracts covering those deficits relieve pressure; reserves and stockpiles set the scarcity premium."
       >
         <div className="method-grid">
           <div>
             <p>
-              The world price is computed from every living country's production and consumption.
-              Demand pressure is dampened by a 0.55 exponent, clamped, and blended with the previous
-              price each turn. A small deterministic noise term prevents prices from freezing.
+              Every turn the world aggregates production and consumption across all living
+              countries. A country in deficit contributes the gap to the global deficit. Export
+              contracts that actually move volume to deficit nations cover part of that gap. What
+              remains uncovered, plus thin stockpiles and fast reserve depletion, drives the
+              reference price.
             </p>
             <p>
+              The setup screen's resource price multiplier scales every reference and floor/ceiling.
+              Market volatility controls both noise and how quickly prices converge to the target.
               Deal prices are set relative to the reference: below market = 80%, at market = 100%,
               above market = 125%. Contracts lock that unit price for their duration.
             </p>
           </div>
           <div className="method-formula-col">
             <Formula
-              tex={String.raw`D = \sum_i \text{consumption}_i,\quad S = \sum_i \text{production}_i`}
+              tex={String.raw`S=\sum_i \text{production}_i,\quad D=\sum_i \text{consumption}_i`}
             />
             <Formula
-              tex={String.raw`P^* = P_{\text{base}} \cdot \operatorname{clamp}\left(\left(\frac{D}{S}\right)^{0.55}, 0.55, 2.6\right)`}
+              tex={String.raw`\text{Def}=\sum_i \max(0,\ \text{consumption}_i-\text{production}_i)`}
+            />
+            <Formula tex={String.raw`X=\sum_{\text{active contracts}} \text{quantity}`} />
+            <Formula tex={String.raw`U=\max(0,\ \text{Def}-X)`} />
+            <Formula
+              tex={String.raw`\text{pressure}=\left(\frac{D}{S}\right)^{0.5}\left(1+1.8\frac{U}{D}\right)F_{\text{stock}}F_{\text{reserve}}`}
             />
             <Formula
-              tex={String.raw`P_{t+1} = \operatorname{clamp}\left(\operatorname{lerp}(P_t, P^*, 0.28)\cdot[0.975,1.025], 0.35P_{\text{base}}, 3P_{\text{base}}\right)`}
+              tex={String.raw`P^*=P_{\text{base}}\cdot M_{\text{price}}\cdot\operatorname{clamp}(\text{pressure},0.35,3.6)`}
+            />
+            <Formula
+              tex={String.raw`P_{t+1}=\operatorname{clamp}\left(\operatorname{lerp}(P_t,P^*,\beta)\cdot(1+\varepsilon),0.35P^*,3.2P^*\right)`}
             />
           </div>
         </div>
+        <p>
+          <strong>
+            F<sub>stock</sub>
+          </strong>{' '}
+          falls as global stock covers more demand;{' '}
+          <strong>
+            F<sub>reserve</sub>
+          </strong>{' '}
+          rises as global reserves shrink relative to depletion.
+          <strong> β</strong> is 0.20 + 0.10 × volatility (clamped 0.16–0.42) and <strong>ε</strong>{' '}
+          is ±3% × volatility. A world market pass each turn also creates 2–4 turn contracts between
+          rival exporters and importers, so coverage is real rather than cosmetic.
+        </p>
         <div className="market-term-grid">
           {PRICING_KEYS.map((key) => (
             <div key={key} className={`market-term pricing-${key}`}>
@@ -365,6 +396,50 @@ export function Methodology() {
               <p>{TRADE_PRICING[key].hint}</p>
             </div>
           ))}
+        </div>
+      </MethodSection>
+
+      <MethodSection
+        id="gdp"
+        title="GDP growth"
+        subtitle="Resource wealth, deficits, debt and fiscal stress all feed the growth rate every turn."
+      >
+        <div className="method-grid">
+          <div>
+            <p>
+              GDP compounds each turn. The engine decomposes the rate into auditable drivers, shown
+              live in the Budget screen. A resource-heavy economy grows faster; unmet deficits,
+              exhausted reserves, zero treasury and runaway debt drag it down. Surplus production,
+              stockpiles and a funded treasury add positive pressure.
+            </p>
+            <p>
+              Debt becomes a growth penalty above 60% of GDP and accelerates above 120%. A treasury
+              at or below zero subtracts 0.5% per turn; a cash reserve below 1% of GDP subtracts
+              0.2%. Each resource in shortage or with less than four turns of stock cover subtracts
+              a further share.
+            </p>
+          </div>
+          <div className="method-formula-col">
+            <Formula
+              tex={String.raw`g_t=\operatorname{clamp}\left(0.006+g_{\text{industry}}+g_{\text{tech}}+g_{\text{military}}+g_{\text{resource}}+g_{\text{surplus}}+g_{\text{stock}}-g_{\text{shortage}}-g_{\text{depletion}}+g_{\text{fiscal}}-g_{\text{debt}}-g_{\text{treasury}}-g_{\text{tax}}-g_{\text{corruption}}+g_{\text{policy}}+\varepsilon,\ -0.06,\ 0.08\right)`}
+            />
+            <Formula
+              tex={String.raw`g_{\text{industry}}=\min(0.015,\ \text{industry levels}\times 0.00015)`}
+            />
+            <Formula
+              tex={String.raw`g_{\text{resource}}=\operatorname{clamp}\left(\frac{\text{production value}}{\text{GDP}},0,0.8\right)\times 0.03`}
+            />
+            <Formula
+              tex={String.raw`g_{\text{surplus}}=0.02\cdot\frac{1}{8}\sum_r \max\left(0,\frac{\text{balance}_r}{\max(1,\text{consumption}_r)}\right)`}
+            />
+            <Formula
+              tex={String.raw`g_{\text{debt}}=-\frac{\max(0,\text{debt/GDP}\% - 60)}{100}(0.008)-\frac{\max(0,\text{debt/GDP}\%-120)}{100}(0.012)`}
+            />
+            <Formula
+              tex={String.raw`g_{\text{shortage}}=-\frac{\text{resources in shortage}}{8}\times 0.012`}
+            />
+            <Formula tex={String.raw`\text{GDP}_{t+1}=\max(100,\ \text{GDP}_t(1+g_t))`} />
+          </div>
         </div>
       </MethodSection>
 
@@ -556,6 +631,12 @@ export function Methodology() {
               resource, the government exports the minimal amount (1 unit) to all rival countries in
               need under 3-turn contracts. Each turn an auto-deal runs, it steadily enhances
               diplomatic relations (+2/turn for below market, +1/turn for at or above market).
+            </p>
+            <p>
+              Rival governments trade with each other through the world market pass. Exporters with
+              a surplus are matched to importers with a deficit for 2–4 turns. Those contracts move
+              real quantities, real money and real price coverage; they are visible as world deals
+              in the Trade screen even though they do not consume your actions.
             </p>
           </div>
           <div className="method-formula-col">

@@ -1,6 +1,12 @@
 import { useState } from 'react'
-import { DEFAULT_SETTINGS, DIFFICULTIES, GITHUB_URL, THEMES } from '../game/constants'
-import type { Difficulty, ThemeId } from '../game/types'
+import {
+  DEFAULT_SETTINGS,
+  DIFFICULTIES,
+  GITHUB_URL,
+  SETTINGS_LIMITS,
+  THEMES,
+} from '../game/constants'
+import type { GameSettings, ThemeId } from '../game/types'
 import { useGame } from '../state/gameStore'
 import { usePrefs } from '../state/prefsStore'
 import { playSfx } from '../game/audio'
@@ -151,16 +157,110 @@ function WorldPreview() {
   )
 }
 
+type EconomySettingKey =
+  | 'resourcePrices'
+  | 'resourceScarcity'
+  | 'marketVolatility'
+  | 'startingTreasury'
+  | 'startingDebt'
+  | 'startingIndustry'
+
+const ECONOMY_OPTIONS: {
+  key: EconomySettingKey
+  label: string
+  hint: string
+  format: (value: number) => string
+}[] = [
+  {
+    key: 'resourcePrices',
+    label: 'Resource prices',
+    hint: 'Global multiplier on every commodity reference price.',
+    format: (value) => `${Math.round(value * 100)}%`,
+  },
+  {
+    key: 'resourceScarcity',
+    label: 'Resource scarcity',
+    hint: 'Higher scarcity shrinks reserves and starting stockpiles.',
+    format: (value) => `${value.toFixed(1)}×`,
+  },
+  {
+    key: 'marketVolatility',
+    label: 'Market volatility',
+    hint: 'Noise and speed of price adjustment each turn.',
+    format: (value) => `${value.toFixed(1)}×`,
+  },
+  {
+    key: 'startingTreasury',
+    label: 'Starting treasury',
+    hint: 'Cash on hand when your government takes office.',
+    format: (value) => `${value.toFixed(1)}×`,
+  },
+  {
+    key: 'startingDebt',
+    label: 'Starting debt',
+    hint: 'Existing sovereign debt inherited on day one.',
+    format: (value) => `${value.toFixed(1)}×`,
+  },
+  {
+    key: 'startingIndustry',
+    label: 'Starting industry',
+    hint: 'Initial extraction and refinement capacity.',
+    format: (value) => `${value.toFixed(1)}×`,
+  },
+]
+
+function SetupSlider({
+  label,
+  value,
+  min,
+  max,
+  step,
+  display,
+  hint,
+  onChange,
+}: {
+  label: string
+  value: number
+  min: number
+  max: number
+  step: number
+  display: string
+  hint?: string
+  onChange: (value: number) => void
+}) {
+  return (
+    <label className="setup-slider">
+      <span className="setup-label">
+        <span>{label}</span>
+        <strong>{display}</strong>
+      </span>
+      <input
+        className="slider"
+        type="range"
+        min={min}
+        max={max}
+        step={step}
+        value={value}
+        onChange={(event) => onChange(Number(event.target.value))}
+        style={{ '--fill': `${((value - min) / (max - min)) * 100}%` } as React.CSSProperties}
+        aria-label={label}
+      />
+      {hint && <small className="setup-hint">{hint}</small>}
+    </label>
+  )
+}
+
 export function StartMenu() {
   const startGame = useGame((state) => state.startGame)
   const { sound, music, theme, setSound, setMusic, setTheme } = usePrefs()
-  const [countries, setCountries] = useState(DEFAULT_SETTINGS.countries)
-  const [continents, setContinents] = useState(DEFAULT_SETTINGS.continents)
-  const [difficulty, setDifficulty] = useState<Difficulty>(DEFAULT_SETTINGS.difficulty)
+  const [settings, setSettings] = useState<GameSettings>(DEFAULT_SETTINGS)
+
+  const updateSetting = <K extends keyof GameSettings>(key: K, value: GameSettings[K]) =>
+    setSettings((current) => ({ ...current, [key]: value }))
 
   const handleStart = () => {
     playSfx('turn')
-    startGame({ sound, music, countries, continents, difficulty })
+    startGame({ ...settings, sound, music })
   }
 
   return (
@@ -221,7 +321,7 @@ export function StartMenu() {
         <div className="setup-section">
           <div className="setup-label">
             <span>Number of countries</span>
-            <strong>{countries}</strong>
+            <strong>{settings.countries}</strong>
           </div>
           <input
             className="slider"
@@ -229,9 +329,11 @@ export function StartMenu() {
             min={10}
             max={20}
             step={1}
-            value={countries}
-            onChange={(event) => setCountries(Number(event.target.value))}
-            style={{ '--fill': `${((countries - 10) / 10) * 100}%` } as React.CSSProperties}
+            value={settings.countries}
+            onChange={(event) => updateSetting('countries', Number(event.target.value))}
+            style={
+              { '--fill': `${((settings.countries - 10) / 10) * 100}%` } as React.CSSProperties
+            }
             aria-label="Number of countries"
           />
           <div className="range-scale">
@@ -243,7 +345,7 @@ export function StartMenu() {
         <div className="setup-section">
           <div className="setup-label">
             <span>Number of continents</span>
-            <strong>{continents}</strong>
+            <strong>{settings.continents}</strong>
           </div>
           <input
             className="slider"
@@ -251,9 +353,9 @@ export function StartMenu() {
             min={1}
             max={5}
             step={1}
-            value={continents}
-            onChange={(event) => setContinents(Number(event.target.value))}
-            style={{ '--fill': `${((continents - 1) / 4) * 100}%` } as React.CSSProperties}
+            value={settings.continents}
+            onChange={(event) => updateSetting('continents', Number(event.target.value))}
+            style={{ '--fill': `${((settings.continents - 1) / 4) * 100}%` } as React.CSSProperties}
             aria-label="Number of continents"
           />
           <div className="range-scale">
@@ -266,7 +368,7 @@ export function StartMenu() {
           <div className="setup-label">
             <span>Difficulty</span>
             <strong className="setup-difficulty-name">
-              {DIFFICULTIES.find((entry) => entry.id === difficulty)?.name}
+              {DIFFICULTIES.find((entry) => entry.id === settings.difficulty)?.name}
             </strong>
           </div>
           <div className="difficulty-grid">
@@ -274,12 +376,12 @@ export function StartMenu() {
               <button
                 key={entry.id}
                 type="button"
-                className={`difficulty-card ${difficulty === entry.id ? 'is-active' : ''}`}
+                className={`difficulty-card ${settings.difficulty === entry.id ? 'is-active' : ''}`}
                 onClick={() => {
-                  setDifficulty(entry.id)
+                  updateSetting('difficulty', entry.id)
                   playSfx('click')
                 }}
-                aria-pressed={difficulty === entry.id}
+                aria-pressed={settings.difficulty === entry.id}
               >
                 <span className="difficulty-icon">
                   <Icon name={entry.icon} size={18} />
@@ -290,8 +392,49 @@ export function StartMenu() {
             ))}
           </div>
           <p className="difficulty-description">
-            {DIFFICULTIES.find((entry) => entry.id === difficulty)?.description}
+            {DIFFICULTIES.find((entry) => entry.id === settings.difficulty)?.description}
           </p>
+        </div>
+
+        <div className="setup-section">
+          <div className="setup-economy-head">
+            <div>
+              <span className="setup-economy-title">Economy modifiers</span>
+              <p>Tune the commodities, the starting position and the market's temper.</p>
+            </div>
+            <button
+              type="button"
+              className="text-btn"
+              onClick={() => {
+                setSettings((current) => ({
+                  ...DEFAULT_SETTINGS,
+                  sound: current.sound,
+                  music: current.music,
+                }))
+                playSfx('click')
+              }}
+            >
+              Reset
+            </button>
+          </div>
+          <div className="setup-economy-grid">
+            {ECONOMY_OPTIONS.map((option) => {
+              const limits = SETTINGS_LIMITS[option.key]
+              return (
+                <SetupSlider
+                  key={option.key}
+                  label={option.label}
+                  value={settings[option.key]}
+                  min={limits.min}
+                  max={limits.max}
+                  step={limits.step}
+                  display={option.format(settings[option.key])}
+                  hint={option.hint}
+                  onChange={(value) => updateSetting(option.key, value)}
+                />
+              )
+            })}
+          </div>
         </div>
 
         <div className="setup-section setup-audio">

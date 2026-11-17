@@ -3,7 +3,7 @@ import { RESOURCES, RESOURCE_IDS } from '../game/constants'
 import type { IndustryAction, ResourceId, ResourceProduction } from '../game/types'
 import { useGame, selectPlayer } from '../state/gameStore'
 import { industryActionCost, INDUSTRY_ACTION_LABELS } from '../game/engine'
-import { resourceFlows, resourceProduction } from '../game/selectors'
+import { resourceFlows, resourceProduction, resourceValuation } from '../game/selectors'
 import {
   formatMoney,
   formatPercent,
@@ -94,6 +94,11 @@ export function Industry() {
     (total, id) => total + flows[id].stock * flows[id].price,
     0,
   )
+  const valuation = resourceValuation(flows)
+  const gdp = Math.max(1, player.stats.gdp)
+  const productionShare = (valuation.productionValue / gdp) * 100
+  const stockShare = (valuation.stockValue / gdp) * 100
+  const reserveShare = (valuation.reserveValue / gdp) * 100
   const totalAdvances = RESOURCE_IDS.reduce((total, id) => total + player.resources[id].advances, 0)
   const industryBudget = player.ministries.industry.budget
   const canAct = game.actionsLeft > 0
@@ -171,6 +176,23 @@ export function Industry() {
             <Icon name="ArrowRight" size={14} /> Single d10: 1 fail · 2–4 +5% · 5–9 +10% · 10 +20% &
             advance
           </span>
+        </div>
+        <div className="resource-wealth-strip">
+          <div>
+            <span>Production</span>
+            <strong>{formatMoney(valuation.productionValue)}</strong>
+            <small>{formatPercent(productionShare, 1)} of GDP per turn</small>
+          </div>
+          <div>
+            <span>Stockpiles</span>
+            <strong>{formatMoney(valuation.stockValue)}</strong>
+            <small>{formatPercent(stockShare, 1)} of GDP stored</small>
+          </div>
+          <div>
+            <span>Known reserves</span>
+            <strong>{formatMoney(valuation.reserveValue)}</strong>
+            <small>{formatPercent(reserveShare, 1)} of GDP in the ground</small>
+          </div>
         </div>
       </SectionCard>
 
@@ -254,6 +276,21 @@ export function Industry() {
                       {stockRunway.text}
                     </em>
                   </strong>
+                </span>
+              </div>
+
+              <div className="resource-value-strip">
+                <span>
+                  <small>Production value</small>
+                  <strong>{formatMoney(flow.production * flow.price)}</strong>
+                </span>
+                <span>
+                  <small>Stock value</small>
+                  <strong>{formatMoney(flow.stock * flow.price)}</strong>
+                </span>
+                <span>
+                  <small>Reserve value</small>
+                  <strong>{formatMoney(state.reserves * flow.price)}</strong>
                 </span>
               </div>
 

@@ -25,6 +25,7 @@ import {
   UNIT_BY_ID,
   UNIT_IDS,
   WEATHERS,
+  normalizeSettings,
 } from './constants'
 import type { ContinentSlot } from './constants'
 import type {
@@ -45,7 +46,7 @@ import type {
 } from './types'
 import { RNG, clamp, randomSeed, roundTo } from './rng'
 import { shadeHex } from './color'
-import { combinedModifiers, resourceModifier } from './selectors'
+import { combinedModifiers, computeMarket, resourceFlows, resourceModifier } from './selectors'
 
 /* ── Name helpers ──────────────────────────────────────────────────────── */
 
@@ -283,10 +284,13 @@ function makeMilitary(rng: RNG, government: string, culture: string): Record<Uni
 
 function makeResources(
   rng: RNG,
+  settings: GameSettings,
   country: Country,
   modifiers: ModifierBlock,
 ): Record<ResourceId, ResourceState> {
   const resources = emptyResources()
+  const scarcity = clamp(settings.resourceScarcity, 0.5, 2.5)
+  const industry = clamp(settings.startingIndustry, 0.5, 2)
   for (const resourceId of RESOURCE_IDS) {
     const def = RESOURCE_BY_ID[resourceId]
     const mods = resourceModifier(modifiers, resourceId)
@@ -303,19 +307,20 @@ function makeResources(
     )
     const extractionFactor = Math.max(0.25, 1 + mods.extraction)
     const extractionLevel = clamp(
-      Math.round(targetProduction / (def.capacityPerLevel * extractionFactor)),
+      Math.round((targetProduction * industry) / (def.capacityPerLevel * extractionFactor)),
       1,
-      10,
+      12,
     )
-    const refinementLevel = clamp(Math.round(extractionLevel * rng.float(0.82, 1.14)), 1, 10)
+    const refinementLevel = clamp(Math.round(extractionLevel * rng.float(0.82, 1.14)), 1, 12)
     const reserveFactor =
-      (def.category === 'commodity' ? rng.float(55, 190) : rng.float(28, 95)) *
-      Math.max(0.2, 1 + mods.reserves)
+      ((def.category === 'commodity' ? rng.float(55, 190) : rng.float(28, 95)) *
+        Math.max(0.2, 1 + mods.reserves)) /
+      scarcity
     const reserves = Math.max(
-      def.capacityPerLevel * 25,
+      (def.capacityPerLevel * 25) / scarcity,
       extractionLevel * def.capacityPerLevel * reserveFactor,
     )
-    const stock = Math.max(10, consumption * rng.float(1.3, 3.2) + rng.float(5, 40))
+    const stock = Math.max(10, consumption * rng.float(1.3, 3.2) + rng.float(5, 40)) / scarcity
     const researchLevel = rng.next() < 0.24 ? rng.int(1, 2) : 0
     const advances = rng.next() < 0.14 ? 1 : 0
     resources[resourceId] = {
@@ -376,8 +381,8 @@ function generateCountry(
   const stats: CountryStats = {
     population,
     gdp,
-    treasury: gdp * rng.float(0.035, 0.11),
-    debt: gdp * rng.float(0.25, 0.82),
+    treasury: gdp * rng.float(0.035, 0.11) * settings.startingTreasury,
+    debt: gdp * rng.float(0.25, 0.82) * settings.startingDebt,
     debtRate: roundTo(rng.float(3, 12), 1),
     approval: 50,
     hdi: 0.62,
@@ -419,7 +424,7 @@ function generateCountry(
   }
 
   const modifiers = combinedModifiers(country)
-  country.resources = makeResources(rng, country, modifiers)
+  country.resources = makeResources(rng, settings, country, modifiers)
 
   const gov = GOVERNMENTS.find((entry) => entry.id === government)
   country.stats.approval = clamp(rng.int(34, 74) + (modifiers.approval ?? 0), 12, 92)
@@ -649,7 +654,8 @@ function createMap(
 
 /* ── Main entry ────────────────────────────────────────────────────────── */
 
-export function generateWorld(settings: GameSettings, seed = randomSeed()): GameState {
+export function generateWorld(settingsInput: GameSettings, seed = randomSeed()): GameState {
+  const settings = normalizeSettings(settingsInput)
   const rng = new RNG(seed)
   const countryCount = clamp(Math.round(settings.countries), 10, 20)
   const continentCount = clamp(Math.round(settings.continents), 1, 5)
@@ -676,36 +682,33 @@ export function generateWorld(settings: GameSettings, seed = randomSeed()): Game
     )
   })
 
-  // Pick a player country, favouring a median-sized nation for a readable start.
-  const sorted = [...countries].sort((a, b) => a.stats.gdp - b.stats.gdp)
-  const median = sorted[Math.floor(sorted.length / 2)] ?? countries[0]!
-  const player = rng.next() < 0.65 ? median : rng.pick(countries)
-  player.isPlayer = true
-  player.relations = 100
-  player.externalApproval = 0
-  player.stats.treasury = Math.max(player.stats.treasury, player.stats.gdp * 0.06)
-  player.military.soldiers = Math.max(player.military.soldiers, 24_000)
-  player.military.tanks = Math.max(player.military.tanks, 40)
-  player.military.jets = Math.max(player.military.jets, 4)
-  player.autoDeal = RESOURCE_IDS.reduce(
-    (result, id) => {
-      result[id] = 'off'
-      return result
-    },
-    {} as Record<ResourceId, AutoDealMode>,
-  )
-
-  for (const country of countries) {
-    if (country.id !== player.id) country.relations = clamp(country.relations, -100, 100)
-  }
-
   const prices = RESOURCE_IDS.reduce(
     (result, id) => {
-      result[id] = roundTo(RESOURCE_BY_ID[id].basePrice * rng.float(0.86, 1.16), 2)
+      result[id] = roundTo(
+        RESOURCE_BY_ID[id].basePrice * settings.resourcePrices * rng.float(0.94, 1.06),
+        2,
+      )
       return result
     },
     {} as Record<ResourceId, number>,
   )
+
+  const flowsByCountry = new Map(
+    countries.map((country) => [country.id, resourceFlows(country, [], prices)]),
+  )
+  const computed = computeMarket(countries, flowsByCountry, [], prices, settings.resourcePrices)
+  const market = {} as GameState['market']
+  for (const id of RESOURCE_IDS) {
+    const price = roundTo(computed[id].targetPrice * rng.float(0.98, 1.02), 2)
+    prices[id] = price
+    market[id] = {
+      ...computed[id],
+      price,
+      previousPrice: price,
+      changePct: 0,
+      trend: 'stable',
+    }
+  }
 
   const logs: LogEntry[] = [
     {
@@ -719,10 +722,8 @@ export function generateWorld(settings: GameSettings, seed = randomSeed()): Game
       id: 'log-2',
       turn: 1,
       category: 'governance',
-      message: `${player.name} enters a new political era under a ${GOVERNMENTS.find((g) => g.id === player.government)?.name ?? 'new government'}.`,
-      countryId: player.id,
-      countryName: player.name,
-      tone: 'positive',
+      message: 'The world is drawn. Select a nation from the map or the list to take office.',
+      tone: 'neutral',
     },
   ]
 
@@ -731,18 +732,19 @@ export function generateWorld(settings: GameSettings, seed = randomSeed()): Game
     seed: seed >>> 0,
     rngState: rng.value,
     createdAt: Date.now(),
-    status: 'playing',
+    status: 'menu',
     settings: { ...settings, countries: countryCount, continents: continentCount },
     turn: 1,
     actionsLeft: ACTIONS_PER_TURN,
-    playerId: player.id,
+    playerId: '',
     countries,
     continents,
     prices,
+    market,
     deals: [],
     logs,
     history: [],
-    eventQueue: ['inauguration'],
+    eventQueue: [],
     seenEvents: [],
     lastOutcome: null,
     eventHistory: [],

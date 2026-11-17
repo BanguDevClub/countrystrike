@@ -10,6 +10,7 @@ import {
   RESOURCE_IDS,
   UNIT_BY_ID,
   UNIT_IDS,
+  normalizeSettings,
 } from './constants'
 import type {
   BudgetBreakdown,
@@ -32,7 +33,10 @@ import {
   combinedModifiers,
   computeBudget,
   computeComposites,
+  computeMarket,
   countrySnapshot,
+  gdpGrowthDrivers,
+  gdpGrowthTotal,
   gdpPerCapita,
   isHostile,
   militaryPower,
@@ -82,26 +86,43 @@ function updatePrices(
   flows: Map<string, Record<ResourceId, ResourceFlow>>,
   rng: RNG,
 ): void {
+  const settings = normalizeSettings(game.settings)
+  const snapshots = computeMarket(
+    livingCountries(game),
+    flows,
+    game.deals,
+    game.prices,
+    settings.resourcePrices,
+  )
+  const volatility = Math.max(0, settings.marketVolatility)
+  const blend = clamp(0.2 + volatility * 0.1, 0.16, 0.42)
+
   for (const resourceId of RESOURCE_IDS) {
     const def = RESOURCE_BY_ID[resourceId]
-    let supply = 0
-    let demand = 0
-    for (const country of livingCountries(game)) {
-      const flow = flows.get(country.id)?.[resourceId]
-      if (!flow) continue
-      supply += flow.production
-      demand += flow.consumption
-    }
-    const pressure = demand / Math.max(supply, 0.01)
-    const target = def.basePrice * clamp(pressure ** 0.55, 0.55, 2.6)
-    const current = game.prices[resourceId] ?? def.basePrice
-    const next = clamp(
-      lerp(current, target, 0.28) * rng.float(0.975, 1.025),
-      def.basePrice * 0.35,
-      def.basePrice * 3,
+    const snapshot = snapshots[resourceId]
+    const current = game.prices[resourceId] ?? def.basePrice * settings.resourcePrices
+    const target = snapshot.targetPrice
+    const floor = def.basePrice * settings.resourcePrices * 0.35
+    const ceiling = def.basePrice * settings.resourcePrices * 3.2
+    const next = roundTo(
+      clamp(
+        lerp(current, target, blend) * (1 + rng.float(-0.03, 0.03) * volatility),
+        floor,
+        ceiling,
+      ),
+      2,
     )
-    game.prices[resourceId] = roundTo(next, 2)
+    const changePct = current > 0 ? ((next - current) / current) * 100 : 0
+    game.prices[resourceId] = next
+    game.market[resourceId] = {
+      ...snapshot,
+      price: next,
+      previousPrice: roundTo(current, 2),
+      changePct: roundTo(changePct, 2),
+      trend: changePct > 0.5 ? 'rising' : changePct < -0.5 ? 'falling' : 'stable',
+    }
   }
+  game.settings = settings
 }
 
 /* ── Auto deals ────────────────────────────────────────────────────────── */
@@ -139,7 +160,8 @@ function runAutoDeals(game: GameState, player: Country, rng: RNG): void {
       const alreadyHasDeal = game.deals.some(
         (deal) =>
           deal.auto &&
-          deal.countryId === country.id &&
+          deal.buyerId === country.id &&
+          deal.sellerId === player.id &&
           deal.resource === resourceId &&
           deal.remainingTurns > 0,
       )
@@ -168,9 +190,9 @@ function runAutoDeals(game: GameState, player: Country, rng: RNG): void {
 
       game.deals.push({
         id: `deal-auto-${game.turn}-${country.id}-${resourceId}-${Math.floor(rng.next() * 1_000_000)}`,
-        countryId: country.id,
+        buyerId: country.id,
+        sellerId: player.id,
         resource: resourceId,
-        direction: 'export',
         quantity: AUTO_DEAL_MIN_QUANTITY,
         unitPrice: price,
         pricing: mode,
@@ -189,6 +211,99 @@ function runAutoDeals(game: GameState, player: Country, rng: RNG): void {
         'positive',
       )
     }
+  }
+}
+
+/**
+ * Matches rival surpluses with rival deficits each turn. The contracts are
+ * real: they move quantities in resource flows, cash in budgets and volumes in
+ * the price model.
+ */
+function runWorldMarket(game: GameState, rng: RNG): void {
+  const rivals = rivalCountries(game)
+  if (rivals.length < 2) return
+
+  const flowsByCountry = new Map<string, Record<ResourceId, ResourceFlow>>()
+  for (const country of livingCountries(game)) {
+    flowsByCountry.set(country.id, resourceFlows(country, game.deals, game.prices))
+  }
+
+  const activePairs = new Set(
+    game.deals
+      .filter((deal) => deal.remainingTurns > 0)
+      .map((deal) => `${deal.buyerId}|${deal.sellerId}|${deal.resource}`),
+  )
+  let newContracts = 0
+  let contractedVolume = 0
+  const maxContracts = 4 + rivals.length
+
+  for (const resourceId of RESOURCE_IDS) {
+    const def = RESOURCE_BY_ID[resourceId]
+    const minimum = Math.max(0.1, def.capacityPerLevel * 0.06)
+    const sellers = rivals
+      .map((country) => {
+        const flow = flowsByCountry.get(country.id)?.[resourceId]
+        if (!flow) return null
+        const available = flow.finalBalance * 0.8
+        return available >= minimum ? { country, available } : null
+      })
+      .filter((entry): entry is { country: Country; available: number } => entry !== null)
+      .sort((a, b) => b.available - a.available)
+
+    const buyers = rivals
+      .map((country) => {
+        const flow = flowsByCountry.get(country.id)?.[resourceId]
+        if (!flow) return null
+        const need = -flow.finalBalance
+        return need >= minimum ? { country, need } : null
+      })
+      .filter((entry): entry is { country: Country; need: number } => entry !== null)
+      .sort((a, b) => b.need - a.need)
+
+    for (const buyer of buyers) {
+      for (const seller of sellers) {
+        if (newContracts >= maxContracts || buyer.need < minimum || seller.available < minimum) {
+          break
+        }
+        if (buyer.country.id === seller.country.id) continue
+        if (activePairs.has(`${buyer.country.id}|${seller.country.id}|${resourceId}`)) continue
+
+        const quantity = roundTo(
+          Math.min(buyer.need, seller.available, Math.max(minimum, def.capacityPerLevel * 0.6)),
+          1,
+        )
+        if (quantity < minimum) continue
+
+        const price = roundTo(game.prices[resourceId] * rng.float(0.97, 1.03), 2)
+        game.deals.push({
+          id: `deal-world-${game.turn}-${buyer.country.id}-${seller.country.id}-${resourceId}-${Math.floor(rng.next() * 1_000_000)}`,
+          buyerId: buyer.country.id,
+          sellerId: seller.country.id,
+          resource: resourceId,
+          quantity,
+          unitPrice: price,
+          pricing: 'market',
+          remainingTurns: rng.int(2, 4),
+          auto: true,
+          createdAtTurn: game.turn,
+        })
+        activePairs.add(`${buyer.country.id}|${seller.country.id}|${resourceId}`)
+        buyer.need -= quantity
+        seller.available -= quantity
+        newContracts += 1
+        contractedVolume += quantity
+      }
+    }
+  }
+
+  if (newContracts > 0) {
+    pushLog(
+      game,
+      'world',
+      `The global commodity market clears ${newContracts} new supply contract${newContracts === 1 ? '' : 's'} (${roundTo(contractedVolume, 1)} units), matching exporters to nations in deficit.`,
+      undefined,
+      'positive',
+    )
   }
 }
 
@@ -314,7 +429,11 @@ function updateRelations(game: GameState, player: Country, rng: RNG): void {
     delta += (combinedModifiers(country).relation ?? 0) * 0.01
 
     const activeAutoDeals = game.deals.filter(
-      (deal) => deal.auto && deal.countryId === country.id && deal.remainingTurns > 0,
+      (deal) =>
+        deal.auto &&
+        deal.sellerId === player.id &&
+        deal.buyerId === country.id &&
+        deal.remainingTurns > 0,
     )
     let autoDealBoost = 0
     for (const deal of activeAutoDeals) {
@@ -407,11 +526,6 @@ function updateCountryStats(
   const highBudgets = MINISTRY_IDS.filter((id) => country.ministries[id].budget === 'high').length
   const lowBudgets = MINISTRY_IDS.filter((id) => country.ministries[id].budget === 'low').length
   const shortages = RESOURCE_IDS.filter((id) => flows[id].shortage > 0).length
-  const surplusScore =
-    RESOURCE_IDS.reduce((total, id) => {
-      const flow = flows[id]
-      return total + clamp(flow.finalBalance / Math.max(1, flow.consumption), -1, 1)
-    }, 0) / RESOURCE_IDS.length
   const burden = budget.taxBurden
 
   const approvalDelta =
@@ -426,39 +540,8 @@ function updateCountryStats(
     rng.float(-0.5, 0.5)
   country.stats.approval = clamp(country.stats.approval + approvalDelta, 0, 100)
 
-  const totalIndustryLevel = RESOURCE_IDS.reduce(
-    (total, id) =>
-      total +
-      (country.resources[id]?.extractionLevel ?? 0) +
-      (country.resources[id]?.refinementLevel ?? 0),
-    0,
-  )
-  const totalAdvances = RESOURCE_IDS.reduce(
-    (total, id) =>
-      total +
-      (country.resources[id]?.advances ?? 0) * 2 +
-      (country.resources[id]?.researchLevel ?? 0),
-    0,
-  )
-  const currentMilitaryPower = militaryPower(country)
-  const industryGdpBoost = totalIndustryLevel * 0.0004
-  const advancesGdpBoost = totalAdvances * 0.0008
-  const militaryGdpBoost = Math.min(0.015, Math.log10(Math.max(1, currentMilitaryPower)) * 0.0015)
-
-  const growth =
-    0.006 +
-    industryGdpBoost +
-    advancesGdpBoost +
-    militaryGdpBoost +
-    (modifiers.growth ?? 0) * 0.25 +
-    highBudgets * 0.0008 -
-    lowBudgets * 0.0008 +
-    surplusScore * 0.004 -
-    Math.max(0, burden - 45) * 0.00022 -
-    (country.stats.corruption / 100) * 0.004 +
-    (budget.net > 0 ? 0.0015 : -0.0025) +
-    rng.float(-0.003, 0.003)
-  country.stats.gdp = Math.max(100, country.stats.gdp * (1 + clamp(growth, -0.04, 0.08)))
+  const growth = gdpGrowthTotal(gdpGrowthDrivers(country, flows, budget)) + rng.float(-0.003, 0.003)
+  country.stats.gdp = Math.max(100, country.stats.gdp * (1 + clamp(growth, -0.06, 0.08)))
   const populationGrowth =
     0.0025 +
     (country.stats.hdi - 0.5) * 0.002 +
@@ -649,8 +732,8 @@ function generateEvents(game: GameState, rng: RNG): void {
   const brokeCountries = game.countries.filter(
     (c) => c.status === 'alive' && !c.isPlayer && c.stats.treasury <= 0,
   )
-  const bailoutCandidates = candidates.filter((event) =>
-    event.id.startsWith('bailout_') || event.id.startsWith('req_money_'),
+  const bailoutCandidates = candidates.filter(
+    (event) => event.id.startsWith('bailout_') || event.id.startsWith('req_money_'),
   )
 
   if (brokeCountries.length > 0 && bailoutCandidates.length > 0) {
@@ -664,7 +747,8 @@ function generateEvents(game: GameState, rng: RNG): void {
 
   // 2. Add at least one ministry event
   const ministryCandidates = candidates.filter(
-    (event) => Boolean(event.ministryId) && !game.eventQueue.some((qId) => qId.startsWith(event.id)),
+    (event) =>
+      Boolean(event.ministryId) && !game.eventQueue.some((qId) => qId.startsWith(event.id)),
   )
   if (ministryCandidates.length > 0) {
     const minWeights = ministryCandidates.map((event) => Math.max(1, event.weight))
@@ -697,6 +781,8 @@ function generateEvents(game: GameState, rng: RNG): void {
 export function advanceTurn(game: GameState): GameState {
   const rng = new RNG(game.rngState)
   const player = getPlayer(game)
+  game.settings = normalizeSettings(game.settings)
+  game.market = game.market ?? ({} as GameState['market'])
   if (player.status !== 'alive') {
     game.status = 'won'
     return game
@@ -704,6 +790,7 @@ export function advanceTurn(game: GameState): GameState {
 
   runAiActions(game, rng)
   runAutoDeals(game, player, rng)
+  runWorldMarket(game, rng)
 
   const actualBudgets = new Map<string, BudgetBreakdown>()
   const flowsByCountry = new Map<string, Record<ResourceId, ResourceFlow>>()

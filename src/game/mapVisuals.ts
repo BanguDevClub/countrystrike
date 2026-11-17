@@ -6,7 +6,7 @@ import type { Country, GameSettings, TradeDeal } from './types'
 export type MapPoint = [number, number]
 export type MapColorMode = 'terrain' | 'alignment' | 'relations' | 'economy' | 'power'
 export type MapFilter = 'all' | 'sovereign' | 'bloc' | 'hostile' | 'integrated' | 'fallen'
-export type MapRouteKind = 'import' | 'export' | 'mixed'
+export type MapRouteKind = 'import' | 'export' | 'mixed' | 'world'
 
 export interface MapColorContext {
   settings: GameSettings
@@ -23,6 +23,7 @@ export interface MapColorContext {
 export interface MapRoute {
   id: string
   countryId: string
+  countryIds?: string[]
   kind: MapRouteKind
   d: string
   duration: number
@@ -281,22 +282,64 @@ export function filterMapCountries(
   )
 }
 
+function routeGeometry(
+  from: MapPoint,
+  to: MapPoint,
+  index: number,
+): { d: string; duration: number } {
+  const dx = to[0] - from[0]
+  const dy = to[1] - from[1]
+  const distance = Math.hypot(dx, dy)
+  const side = to[0] >= from[0] ? 1 : -1
+  const bend = side * (index % 2 === 0 ? 1 : -1) * Math.min(58, 12 + distance * 0.13)
+  const midX = (from[0] + to[0]) / 2 - (dy / Math.max(1, distance)) * bend
+  const midY = (from[1] + to[1]) / 2 + (dx / Math.max(1, distance)) * bend
+  const controlX = Math.max(8, Math.min(MAP_WIDTH - 8, midX))
+  const controlY = Math.max(8, Math.min(MAP_HEIGHT - 8, midY))
+  return {
+    d: `M${Math.round(from[0])},${Math.round(from[1])} Q${Math.round(controlX)},${Math.round(
+      controlY,
+    )} ${Math.round(to[0])},${Math.round(to[1])}`,
+    duration: Math.min(8, Math.max(3.4, 2.6 + distance / 150)),
+  }
+}
+
 export function buildMapRoutes(
   countries: Country[],
   player: Country,
   deals: TradeDeal[],
   limit = 20,
 ): MapRoute[] {
+  const countryById = new Map(countries.map((country) => [country.id, country]))
   const byPartner = new Map<string, { imports: number; exports: number }>()
+  const worldPairs = new Map<string, { buyerId: string; sellerId: string; volume: number }>()
+
   for (const deal of deals) {
-    if (deal.countryId === player.id) continue
-    const entry = byPartner.get(deal.countryId) ?? { imports: 0, exports: 0 }
-    if (deal.direction === 'import') entry.imports += 1
-    else entry.exports += 1
-    byPartner.set(deal.countryId, entry)
+    if (deal.remainingTurns <= 0) continue
+    if (deal.buyerId === player.id || deal.sellerId === player.id) {
+      const partnerId = deal.buyerId === player.id ? deal.sellerId : deal.buyerId
+      if (partnerId === player.id) continue
+      const entry = byPartner.get(partnerId) ?? { imports: 0, exports: 0 }
+      if (deal.buyerId === player.id) entry.imports += 1
+      else entry.exports += 1
+      byPartner.set(partnerId, entry)
+      continue
+    }
+
+    const buyer = countryById.get(deal.buyerId)
+    const seller = countryById.get(deal.sellerId)
+    if (!buyer || !seller || buyer.status !== 'alive' || seller.status !== 'alive') continue
+    const key = [buyer.id, seller.id].sort().join('|')
+    const entry = worldPairs.get(key) ?? {
+      buyerId: buyer.id,
+      sellerId: seller.id,
+      volume: 0,
+    }
+    entry.volume += deal.quantity
+    worldPairs.set(key, entry)
   }
-  const origin = player.map.centroid
-  const ranked = countries
+
+  const playerRanked = countries
     .filter(
       (country) => country.status === 'alive' && !country.isPlayer && byPartner.has(country.id),
     )
@@ -305,31 +348,45 @@ export function buildMapRoutes(
       const right = byPartner.get(b.id)!
       return right.imports + right.exports - (left.imports + left.exports)
     })
-    .slice(0, limit)
 
-  return ranked.map((country, index) => {
+  const worldRanked = [...worldPairs.values()]
+    .sort((a, b) => b.volume - a.volume)
+    .filter((entry) => countryById.get(entry.buyerId) && countryById.get(entry.sellerId))
+
+  const worldSlots = Math.min(worldRanked.length, Math.max(3, Math.floor(limit * 0.45)))
+  const playerSlots = Math.min(playerRanked.length, limit - worldSlots)
+  const finalWorldSlots = Math.min(worldRanked.length, limit - playerSlots)
+
+  const routes: MapRoute[] = playerRanked.slice(0, playerSlots).map((country, index) => {
     const trade = byPartner.get(country.id)!
-    const target = country.map.centroid
-    const dx = target[0] - origin[0]
-    const dy = target[1] - origin[1]
-    const distance = Math.hypot(dx, dy)
-    const side = target[0] >= origin[0] ? 1 : -1
-    const bend = side * (index % 2 === 0 ? 1 : -1) * Math.min(58, 12 + distance * 0.13)
-    const midX = (origin[0] + target[0]) / 2 - (dy / Math.max(1, distance)) * bend
-    const midY = (origin[1] + target[1]) / 2 + (dx / Math.max(1, distance)) * bend
-    const controlX = Math.max(8, Math.min(MAP_WIDTH - 8, midX))
-    const controlY = Math.max(8, Math.min(MAP_HEIGHT - 8, midY))
+    const geometry = routeGeometry(player.map.centroid, country.map.centroid, index)
     const kind: MapRouteKind =
       trade.imports > 0 && trade.exports > 0 ? 'mixed' : trade.imports > 0 ? 'import' : 'export'
     return {
       id: `trade-${country.id}`,
       countryId: country.id,
+      countryIds: [country.id],
       kind,
-      d: `M${Math.round(origin[0])},${Math.round(origin[1])} Q${Math.round(controlX)},${Math.round(
-        controlY,
-      )} ${Math.round(target[0])},${Math.round(target[1])}`,
-      duration: Math.min(8, Math.max(3.4, 2.6 + distance / 150)),
+      d: geometry.d,
+      duration: geometry.duration,
       delay: -(index * 0.62),
-    } satisfies MapRoute
+    }
   })
+
+  worldRanked.slice(0, finalWorldSlots).forEach((entry, index) => {
+    const buyer = countryById.get(entry.buyerId)!
+    const seller = countryById.get(entry.sellerId)!
+    const geometry = routeGeometry(seller.map.centroid, buyer.map.centroid, routes.length + index)
+    routes.push({
+      id: `world-trade-${buyer.id}-${seller.id}`,
+      countryId: buyer.id,
+      countryIds: [buyer.id, seller.id],
+      kind: 'world',
+      d: geometry.d,
+      duration: geometry.duration,
+      delay: -(index * 0.62),
+    })
+  })
+
+  return routes
 }

@@ -6,6 +6,7 @@ import {
   GOVERNMENT_BY_ID,
   MINISTRIES,
   MINISTRY_COST_FACTORS,
+  MINISTRY_IDS,
   RESOURCE_BY_ID,
   RESOURCE_IDS,
   TRAIT_BY_ID,
@@ -20,6 +21,7 @@ import type {
   CountrySnapshot,
   Difficulty,
   GameSettings,
+  MarketSnapshot,
   ModifierBlock,
   ResourceFlow,
   ResourceId,
@@ -29,7 +31,7 @@ import type {
   TradePricing,
   UnitId,
 } from './types'
-import { clamp } from './rng'
+import { clamp, roundTo } from './rng'
 
 const SCALAR_MODIFIER_KEYS = [
   'extraction',
@@ -294,13 +296,8 @@ export function resourceFlows(
     let exports = 0
     for (const deal of deals) {
       if (deal.resource !== resourceId || deal.remainingTurns <= 0) continue
-      if (country.isPlayer) {
-        if (deal.direction === 'import') imports += deal.quantity
-        else exports += deal.quantity
-      } else if (deal.countryId === country.id) {
-        if (deal.direction === 'import') exports += deal.quantity
-        else imports += deal.quantity
-      }
+      if (deal.buyerId === country.id) imports += deal.quantity
+      if (deal.sellerId === country.id) exports += deal.quantity
     }
 
     const finalBalance = production + imports - consumption - exports
@@ -331,6 +328,228 @@ export function resourceFlows(
 
 export function laborForce(country: Country): number {
   return country.stats.population * 0.0005
+}
+
+/**
+ * Global market snapshot for every resource. Prices are driven by aggregate
+ * deficits, the export volume that actually covers those deficits, stock cover
+ * and how quickly reserves are being exhausted.
+ */
+export function computeMarket(
+  countries: Country[],
+  flowsByCountry: Map<string, Record<ResourceId, ResourceFlow>>,
+  deals: TradeDeal[],
+  prices: Record<ResourceId, number>,
+  priceMultiplier = 1,
+): Record<ResourceId, MarketSnapshot> {
+  const market = {} as Record<ResourceId, MarketSnapshot>
+  const living = countries.filter((country) => country.status === 'alive')
+
+  for (const resourceId of RESOURCE_IDS) {
+    const def = RESOURCE_BY_ID[resourceId]
+    let supply = 0
+    let demand = 0
+    let stock = 0
+    let reserves = 0
+    let depletion = 0
+    let deficit = 0
+    let surplus = 0
+
+    for (const country of living) {
+      const flow = flowsByCountry.get(country.id)?.[resourceId]
+      if (!flow) continue
+      supply += Math.max(0, flow.production)
+      demand += Math.max(0, flow.consumption)
+      stock += Math.max(0, flow.stock)
+      reserves += Math.max(0, flow.reserves)
+      depletion += Math.max(0, flow.depletion)
+      if (flow.consumption > flow.production) deficit += flow.consumption - flow.production
+      else surplus += flow.production - flow.consumption
+    }
+
+    let exports = 0
+    for (const deal of deals) {
+      if (deal.resource !== resourceId || deal.remainingTurns <= 0) continue
+      exports += Math.max(0, deal.quantity)
+    }
+
+    const coveredDeficit = Math.min(deficit, exports)
+    const uncoveredDeficit = Math.max(0, deficit - exports)
+    const balance = demand / Math.max(supply, 0.01)
+    const deficitShare = demand > 0 ? uncoveredDeficit / demand : 0
+    const stockTurns = demand > 0 ? stock / demand : 0
+    const reserveTurns = depletion > 0 ? reserves / depletion : null
+    const stockFactor = clamp(1.18 - clamp(stockTurns, 0, 8) * 0.045, 0.82, 1.18)
+    const reserveFactor = clamp(1.12 - (clamp(reserveTurns ?? 240, 0, 240) / 240) * 0.22, 0.9, 1.12)
+    const pressure = clamp(
+      Math.pow(balance, 0.5) * (1 + deficitShare * 1.8) * stockFactor * reserveFactor,
+      0.35,
+      3.6,
+    )
+    const targetPrice = roundTo(def.basePrice * priceMultiplier * pressure, 2)
+    const price = roundTo(prices[resourceId] ?? targetPrice, 2)
+
+    market[resourceId] = {
+      resource: resourceId,
+      price,
+      previousPrice: price,
+      changePct: 0,
+      targetPrice,
+      supply,
+      demand,
+      surplus,
+      deficit,
+      exports,
+      coveredDeficit,
+      uncoveredDeficit,
+      stock,
+      reserves,
+      reserveTurns,
+      stockTurns,
+      pressure,
+      trend: 'stable',
+    }
+  }
+
+  return market
+}
+
+export function resourceValuation(flows: Record<ResourceId, ResourceFlow>): {
+  productionValue: number
+  stockValue: number
+  reserveValue: number
+} {
+  let productionValue = 0
+  let stockValue = 0
+  let reserveValue = 0
+  for (const resourceId of RESOURCE_IDS) {
+    const flow = flows[resourceId]
+    productionValue += flow.production * flow.price
+    stockValue += flow.stock * flow.price
+    reserveValue += flow.reserves * flow.price
+  }
+  return { productionValue, stockValue, reserveValue }
+}
+
+export interface GdpDriver {
+  key: string
+  label: string
+  value: number
+}
+
+/**
+ * Turn growth decomposed into the forces the player can actually influence.
+ * The engine adds a small random term on top; everything else is auditable.
+ */
+export function gdpGrowthDrivers(
+  country: Country,
+  flows: Record<ResourceId, ResourceFlow>,
+  budget: BudgetBreakdown,
+): GdpDriver[] {
+  const modifiers = combinedModifiers(country)
+  const gdp = Math.max(1, country.stats.gdp)
+  const highBudgets = MINISTRY_IDS.filter((id) => country.ministries[id].budget === 'high').length
+  const lowBudgets = MINISTRY_IDS.filter((id) => country.ministries[id].budget === 'low').length
+  const totalIndustryLevel = RESOURCE_IDS.reduce(
+    (total, id) =>
+      total +
+      (country.resources[id]?.extractionLevel ?? 0) +
+      (country.resources[id]?.refinementLevel ?? 0),
+    0,
+  )
+  const totalAdvances = RESOURCE_IDS.reduce(
+    (total, id) =>
+      total +
+      (country.resources[id]?.advances ?? 0) * 2 +
+      (country.resources[id]?.researchLevel ?? 0),
+    0,
+  )
+  const resourceValue = resourceValuation(flows).productionValue
+  const resourceShare = clamp(resourceValue / gdp, 0, 0.8)
+
+  let surplusScore = 0
+  let stockCover = 0
+  let reserveStress = 0
+  let shortageCount = 0
+  for (const id of RESOURCE_IDS) {
+    const flow = flows[id]
+    surplusScore += Math.min(1, Math.max(0, flow.finalBalance / Math.max(1, flow.consumption)))
+    stockCover += clamp(flow.stock / Math.max(0.1, flow.consumption), 0, 6) / 6
+    if (flow.reserveRunway != null) {
+      reserveStress += clamp(1 - flow.reserveRunway / 20, 0, 1)
+    }
+    if (flow.shortage > 0 || (flow.finalBalance < 0 && (flow.stockRunway ?? 99) < 4)) {
+      shortageCount += 1
+    }
+  }
+  surplusScore /= RESOURCE_IDS.length
+  stockCover /= RESOURCE_IDS.length
+  reserveStress /= RESOURCE_IDS.length
+
+  const debtRatio = debtToGdp(country)
+  const treasuryRatio = country.stats.treasury / gdp
+  const netRatio = budget.net / gdp
+  const burden = budget.taxBurden
+  const debtBurden =
+    -(Math.max(0, debtRatio - 60) / 100) * 0.008 - (Math.max(0, debtRatio - 120) / 100) * 0.012
+  const treasuryStress =
+    country.stats.treasury <= 0
+      ? -0.005
+      : treasuryRatio < 0.01
+        ? -0.002
+        : treasuryRatio > 0.2
+          ? 0.001
+          : 0
+
+  return [
+    { key: 'base', label: 'Base expansion', value: 0.006 },
+    {
+      key: 'industry',
+      label: 'Industrial scale',
+      value: Math.min(0.015, totalIndustryLevel * 0.00015),
+    },
+    { key: 'advances', label: 'Technology advances', value: totalAdvances * 0.0008 },
+    {
+      key: 'military',
+      label: 'Military demand',
+      value: Math.min(0.015, Math.log10(Math.max(1, militaryPower(country))) * 0.0015),
+    },
+    { key: 'resourceSector', label: 'Resource sector', value: resourceShare * 0.03 },
+    { key: 'surplus', label: 'Resource surplus', value: surplusScore * 0.02 },
+    { key: 'stock', label: 'Stock buffers', value: stockCover * 0.003 },
+    {
+      key: 'shortages',
+      label: 'Shortages & deficits',
+      value: -(shortageCount / RESOURCE_IDS.length) * 0.012,
+    },
+    { key: 'depletion', label: 'Reserve depletion', value: -reserveStress * 0.005 },
+    {
+      key: 'fiscal',
+      label: 'Fiscal balance',
+      value: clamp(netRatio, -0.06, 0.06) * 0.12,
+    },
+    { key: 'debt', label: 'Debt burden', value: debtBurden },
+    { key: 'treasury', label: 'Treasury reserve', value: treasuryStress },
+    {
+      key: 'tax',
+      label: 'Tax burden',
+      value: -Math.max(0, burden - 45) * 0.00022,
+    },
+    {
+      key: 'corruption',
+      label: 'Corruption drag',
+      value: -(country.stats.corruption / 100) * 0.004,
+    },
+    {
+      key: 'policy',
+      label: 'Traits & cabinet',
+      value: (modifiers.growth ?? 0) * 0.25 + highBudgets * 0.0008 - lowBudgets * 0.0008,
+    },
+  ]
+}
+
+export function gdpGrowthTotal(drivers: GdpDriver[]): number {
+  return drivers.reduce((total, driver) => total + driver.value, 0)
 }
 
 export function effectiveTaxCollection(country: Country): number {
@@ -378,13 +597,8 @@ export function computeBudget(
   for (const deal of deals) {
     if (deal.remainingTurns <= 0) continue
     const value = deal.quantity * deal.unitPrice
-    if (country.isPlayer) {
-      if (deal.direction === 'import') importValue += value
-      else exportValue += value
-    } else if (deal.countryId === country.id) {
-      if (deal.direction === 'import') exportValue += value
-      else importValue += value
-    }
+    if (deal.buyerId === country.id) importValue += value
+    if (deal.sellerId === country.id) exportValue += value
   }
 
   const tariffRevenue = Math.min(importValue * (country.taxes.tariff / 100), gdp * 0.18)
