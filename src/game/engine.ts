@@ -22,6 +22,7 @@ import type {
   IndustryAction,
   LogCategory,
   LogEntry,
+  MinistryId,
   ResourceFlow,
   ResourceId,
   TradePricing,
@@ -38,6 +39,7 @@ import {
   gdpGrowthDrivers,
   gdpGrowthTotal,
   gdpPerCapita,
+  incomeTaxDepressionEffect,
   isHostile,
   militaryPower,
   reserveRunway,
@@ -532,7 +534,7 @@ function updateCountryStats(
     0.25 * highBudgets -
     0.24 * lowBudgets -
     Math.max(0, burden - 40) * 0.055 -
-    shortages * 1.15 -
+    shortages * 0.8 -
     Math.max(0, country.stats.corruption - 40) * 0.012 +
     Math.max(0, country.stats.security - 50) * 0.012 +
     (modifiers.approval ?? 0) * 0.03 +
@@ -603,7 +605,8 @@ function updateCountryStats(
     4 +
       (100 - country.stats.approval) * 0.13 +
       (0.7 - country.stats.hdi) * 14 +
-      country.stats.violence * 0.25,
+      country.stats.violence * 0.25 +
+      incomeTaxDepressionEffect(country.taxes),
     1,
     45,
   )
@@ -889,11 +892,12 @@ export function advanceTurn(game: GameState): GameState {
 
 /* ── Industry helpers ──────────────────────────────────────────────────── */
 
-export const INDUSTRY_ACTION_FACTORS: Record<IndustryAction, number> = {
-  prospect: 0.0006,
-  extraction: 0.0016,
-  refinement: 0.0026,
-  research: 0.004,
+/** Base money cost in millions. The final price scales with industry level and resource class. */
+export const INDUSTRY_ACTION_BASE_COST: Record<IndustryAction, number> = {
+  prospect: 70,
+  extraction: 140,
+  refinement: 200,
+  research: 260,
 }
 
 export const INDUSTRY_ACTION_LABELS: Record<IndustryAction, string> = {
@@ -903,6 +907,9 @@ export const INDUSTRY_ACTION_LABELS: Record<IndustryAction, string> = {
   research: 'Research stimulus',
 }
 
+/** Non-commodity (strategic) resources cost more at every industry level. */
+export const STRATEGIC_COST_FACTOR = 3
+
 export function industryActionCost(
   country: Country,
   resourceId: ResourceId,
@@ -911,16 +918,54 @@ export function industryActionCost(
   const def = RESOURCE_BY_ID[resourceId]
   const state = country.resources[resourceId]
   const levelFactor =
-    1 + (state.extractionLevel + state.refinementLevel) * 0.16 + state.advances * 0.32
-  const categoryFactor = def.category === 'strategic' ? 2.25 : 1
+    1 + (state.extractionLevel + state.refinementLevel) * 0.12 + state.advances * 0.25
+  const categoryFactor = def.category === 'strategic' ? STRATEGIC_COST_FACTOR : 1
   const governmentIndustry = 1 - BUDGET_MULTIPLIERS[country.ministries.industry.budget] * 0.05
-  const cost =
-    country.stats.gdp *
-    INDUSTRY_ACTION_FACTORS[action] *
-    levelFactor *
-    categoryFactor *
-    governmentIndustry
-  return Math.max(12, roundTo(cost, 2))
+  const cost = INDUSTRY_ACTION_BASE_COST[action] * levelFactor * categoryFactor * governmentIndustry
+  return Math.max(25, roundTo(cost, 2))
+}
+
+/* ── Cabinet action costs ──────────────────────────────────────────────── */
+
+export type MinistryAction = 'replace' | 'audit' | 'train' | 'upgrade'
+
+const MINISTRY_ACTION_BASE_COST: Record<MinistryAction, number> = {
+  replace: 240,
+  audit: 120,
+  train: 180,
+  upgrade: 480,
+}
+
+/** Every ministry operation scales with the institution's tier, never with GDP. */
+export function ministryLevelCostFactor(level: number): number {
+  return 1 + Math.max(0, level - 1) * 0.4
+}
+
+export function ministryActionCost(
+  country: Country,
+  id: MinistryId,
+  action: MinistryAction,
+): number {
+  const level = country.ministries[id]?.level ?? 1
+  return roundTo(MINISTRY_ACTION_BASE_COST[action] * ministryLevelCostFactor(level), 2)
+}
+
+export function diplomaticMissionCost(country: Country): number {
+  return roundTo(90 * ministryLevelCostFactor(country.ministries.foreign?.level ?? 1), 2)
+}
+
+export function approvalCampaignCost(country: Country): number {
+  return roundTo(180 * ministryLevelCostFactor(country.ministries.foreign?.level ?? 1), 2)
+}
+
+export function mergerCost(country: Country): number {
+  const foreign = ministryLevelCostFactor(country.ministries.foreign?.level ?? 1)
+  const finance = ministryLevelCostFactor(country.ministries.finance?.level ?? 1)
+  return roundTo(620 * (foreign + finance) * 0.5, 2)
+}
+
+export function warMobilizationCost(country: Country): number {
+  return roundTo(320 * ministryLevelCostFactor(country.ministries.defense?.level ?? 1), 2)
 }
 
 /* ── Unit helpers ──────────────────────────────────────────────────────── */

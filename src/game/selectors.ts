@@ -131,6 +131,16 @@ export function taxBurden(taxes: TaxRates): number {
   return taxes.corporate * 0.35 + taxes.income * 0.35 + taxes.tariff * 0.05 + taxes.royalty * 0.25
 }
 
+/** Corporate tax competitiveness: 20% is neutral, lower rates lift GDP growth, higher rates drag it. */
+export function corporateTaxGrowthEffect(taxes: TaxRates): number {
+  return clamp((20 - taxes.corporate) * 0.0008, -0.01, 0.01)
+}
+
+/** Income tax pressure on households: 20% is neutral, low rates ease depression, high rates deepen it. */
+export function incomeTaxDepressionEffect(taxes: TaxRates): number {
+  return (taxes.income - 20) * 0.18
+}
+
 /** Effective collections curve. Peaks at a burden of 40 and tapers on both sides. */
 export function lafferAtBurden(burden: number): number {
   return clamp(1 - ((burden - 40) / 70) ** 2, 0.2, 1)
@@ -520,7 +530,7 @@ export function gdpGrowthDrivers(
     {
       key: 'shortages',
       label: 'Shortages & deficits',
-      value: -(shortageCount / RESOURCE_IDS.length) * 0.012,
+      value: -(shortageCount / RESOURCE_IDS.length) * 0.009,
     },
     { key: 'depletion', label: 'Reserve depletion', value: -reserveStress * 0.005 },
     {
@@ -534,6 +544,11 @@ export function gdpGrowthDrivers(
       key: 'tax',
       label: 'Tax burden',
       value: -Math.max(0, burden - 45) * 0.00022,
+    },
+    {
+      key: 'corporateTax',
+      label: 'Corporate tax competitiveness',
+      value: corporateTaxGrowthEffect(country.taxes),
     },
     {
       key: 'corruption',
@@ -602,7 +617,10 @@ export function computeBudget(
   }
 
   const tariffRevenue = Math.min(importValue * (country.taxes.tariff / 100), gdp * 0.18)
-  const royaltyRevenue = productionValue * (country.taxes.royalty / 100) * 0.35
+  const royaltyRevenue = Math.min(
+    productionValue * (country.taxes.royalty / 100) * 0.35,
+    gdp * 0.15,
+  )
 
   const revenueLines = [
     {

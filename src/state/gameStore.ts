@@ -38,12 +38,17 @@ import { RNG, clamp, roundTo } from '../game/rng'
 import { generateWorld } from '../game/worldgen'
 import {
   advanceTurn,
+  approvalCampaignCost,
+  diplomaticMissionCost,
   getPlayer,
   industryActionCost,
   INDUSTRY_ACTION_LABELS,
+  mergerCost,
+  ministryActionCost,
   seedHistory,
   pushLog,
   unitPurchasePlan,
+  warMobilizationCost,
 } from '../game/engine'
 import {
   combinedModifiers,
@@ -433,7 +438,7 @@ export const useGame = create<GameStore>()(
           announce(set, error, 'negative')
           return
         }
-        const cost = Math.max(25, player.stats.gdp * 0.0015)
+        const cost = ministryActionCost(player, id, 'replace')
         if (player.stats.treasury < cost) {
           announce(set, `Need ${formatMoney(cost)} to install a new minister.`, 'negative')
           return
@@ -474,7 +479,7 @@ export const useGame = create<GameStore>()(
           announce(set, error, 'negative')
           return
         }
-        const cost = Math.max(15, player.stats.gdp * 0.0008)
+        const cost = ministryActionCost(player, id, 'audit')
         if (player.stats.treasury < cost) {
           announce(
             set,
@@ -521,7 +526,7 @@ export const useGame = create<GameStore>()(
           announce(set, `${titleCase(id)} ministry is already at maximum Tier 5.`, 'neutral')
           return
         }
-        const cost = Math.max(40, player.stats.gdp * 0.0025 * currentLevel)
+        const cost = ministryActionCost(player, id, 'upgrade')
         if (player.stats.treasury < cost) {
           announce(
             set,
@@ -556,7 +561,7 @@ export const useGame = create<GameStore>()(
           announce(set, error, 'negative')
           return
         }
-        const cost = Math.max(20, player.stats.gdp * 0.001)
+        const cost = ministryActionCost(player, id, 'train')
         if (player.stats.treasury < cost) {
           announce(set, `Need ${formatMoney(cost)} for executive leadership training.`, 'negative')
           return
@@ -1347,7 +1352,7 @@ export const useGame = create<GameStore>()(
           announce(set, `${partner.name} is already fully aligned. Fund external approval instead.`)
           return
         }
-        const cost = Math.max(20, player.stats.gdp * 0.0005)
+        const cost = diplomaticMissionCost(player)
         if (player.stats.treasury < cost) {
           announce(set, `Need ${formatMoney(cost)} for a diplomatic mission.`, 'negative')
           return
@@ -1395,7 +1400,7 @@ export const useGame = create<GameStore>()(
           announce(set, error, 'negative')
           return
         }
-        const cost = Math.max(35, player.stats.gdp * 0.0008)
+        const cost = approvalCampaignCost(player)
         if (player.stats.treasury < cost) {
           announce(set, `Need ${formatMoney(cost)} for an approval campaign.`, 'negative')
           return
@@ -1440,7 +1445,7 @@ export const useGame = create<GameStore>()(
           announce(set, error, 'negative')
           return
         }
-        const cost = Math.max(100, player.stats.gdp * 0.01)
+        const cost = mergerCost(player)
         if (player.stats.treasury < cost) {
           announce(set, `Need ${formatMoney(cost)} to administer the merger.`, 'negative')
           return
@@ -1514,7 +1519,7 @@ export const useGame = create<GameStore>()(
           announce(set, error, 'negative')
           return
         }
-        const cost = Math.max(50, player.stats.gdp * 0.004)
+        const cost = warMobilizationCost(player)
         if (player.stats.treasury < cost) {
           announce(set, `Need ${formatMoney(cost)} to mobilise for war.`, 'negative')
           return
@@ -1685,9 +1690,6 @@ export const selectEventDefinition = (state: GameStore) =>
 
 export const selectCanAct = (state: GameStore): boolean =>
   Boolean(state.game && state.game.status === 'playing' && state.game.actionsLeft > 0)
-
-export const selectMergeCost = (state: GameStore): number =>
-  state.game ? Math.max(100, getPlayer(state.game).stats.gdp * 0.01) : 0
 
 export const selectTreasury = (state: GameStore): number =>
   state.game ? getPlayer(state.game).stats.treasury : 0

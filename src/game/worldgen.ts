@@ -291,8 +291,16 @@ function makeResources(
   const resources = emptyResources()
   const scarcity = clamp(settings.resourceScarcity, 0.5, 2.5)
   const industry = clamp(settings.startingIndustry, 0.5, 2)
+  const commodities = RESOURCE_IDS.filter((id) => RESOURCE_BY_ID[id].category === 'commodity')
+  const strategics = RESOURCE_IDS.filter((id) => RESOURCE_BY_ID[id].category === 'strategic')
+  // Every country exports one commodity. Only a majority also has a strategic endowment,
+  // so non-commodities stay rare and most of the other flows start in deficit.
+  const endowed = new Set<ResourceId>([rng.pick(commodities)])
+  if (rng.chance(0.65)) endowed.add(rng.pick(strategics))
+
   for (const resourceId of RESOURCE_IDS) {
     const def = RESOURCE_BY_ID[resourceId]
+    const strategic = def.category === 'strategic'
     const mods = resourceModifier(modifiers, resourceId)
     const civil =
       country.stats.population * def.civilPerMillion * Math.max(0.1, 1 + mods.consumption)
@@ -301,28 +309,47 @@ function makeResources(
       return total + (country.military[unitId] ?? 0) * (unit.upkeepResources[resourceId] ?? 0)
     }, 0)
     const consumption = civil + military
-    const targetProduction = Math.max(
-      def.capacityPerLevel * 0.7,
-      consumption * rng.float(0.72, 1.38),
-    )
+    const isEndowed = endowed.has(resourceId)
+    // Strategic deposits are absent in a third of non-endowed countries.
+    const barren = strategic && !isEndowed && rng.chance(0.3)
+    const productionFactor = isEndowed
+      ? rng.float(1.25, 1.8)
+      : strategic
+        ? rng.float(0.15, 0.55)
+        : rng.float(0.42, 0.9)
+    const targetProduction = consumption * productionFactor
     const extractionFactor = Math.max(0.25, 1 + mods.extraction)
-    const extractionLevel = clamp(
-      Math.round((targetProduction * industry) / (def.capacityPerLevel * extractionFactor)),
-      1,
-      12,
-    )
-    const refinementLevel = clamp(Math.round(extractionLevel * rng.float(0.82, 1.14)), 1, 12)
-    const reserveFactor =
-      ((def.category === 'commodity' ? rng.float(55, 190) : rng.float(28, 95)) *
-        Math.max(0.2, 1 + mods.reserves)) /
-      scarcity
-    const reserves = Math.max(
-      (def.capacityPerLevel * 25) / scarcity,
-      extractionLevel * def.capacityPerLevel * reserveFactor,
-    )
-    const stock = Math.max(10, consumption * rng.float(1.3, 3.2) + rng.float(5, 40)) / scarcity
-    const researchLevel = rng.next() < 0.24 ? rng.int(1, 2) : 0
-    const advances = rng.next() < 0.14 ? 1 : 0
+    const rawExtractionLevel =
+      (targetProduction * industry) / (def.capacityPerLevel * extractionFactor)
+    const extractionLevel = barren
+      ? 0
+      : clamp(isEndowed ? Math.ceil(rawExtractionLevel) : Math.round(rawExtractionLevel), 1, 12)
+    const refinementRoll = Math.round(extractionLevel * rng.float(0.78, 1.1))
+    const refinementLevel = barren
+      ? 0
+      : clamp(isEndowed ? Math.max(extractionLevel, refinementRoll) : refinementRoll, 1, 12)
+    const reserveTurns = isEndowed
+      ? strategic
+        ? rng.float(50, 100)
+        : rng.float(80, 160)
+      : strategic
+        ? rng.float(10, 35)
+        : rng.float(25, 80)
+    const reserveFactor = (reserveTurns * Math.max(0.2, 1 + mods.reserves)) / scarcity
+    const reserveFloor = (def.capacityPerLevel * (strategic ? 10 : 22)) / scarcity
+    const reserves = barren
+      ? 0
+      : Math.max(reserveFloor, extractionLevel * def.capacityPerLevel * reserveFactor)
+    const stockTurns = isEndowed
+      ? strategic
+        ? rng.float(3, 6)
+        : rng.float(4, 8)
+      : strategic
+        ? rng.float(1.5, 3.5)
+        : rng.float(3, 6)
+    const stock = barren ? 0 : Math.max(1, consumption * stockTurns) / scarcity
+    const researchLevel = barren ? 0 : rng.next() < 0.24 ? rng.int(1, 2) : 0
+    const advances = barren ? 0 : rng.next() < 0.14 ? 1 : 0
     resources[resourceId] = {
       reserves: roundTo(reserves, 1),
       extractionLevel,

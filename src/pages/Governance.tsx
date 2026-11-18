@@ -17,9 +17,12 @@ import {
   averageCorruption,
   combinedModifiers,
   computeBudget,
+  corporateTaxGrowthEffect,
+  incomeTaxDepressionEffect,
   lafferAtBurden,
   taxBurden,
 } from '../game/selectors'
+import { ministryActionCost } from '../game/engine'
 import { formatDecimal, formatMoney, formatPercent } from '../game/format'
 import { Badge, PageHeader, ProgressBar, SectionCard, StatTile } from '../components/ui'
 import { Icon } from '../components/Icon'
@@ -42,7 +45,7 @@ const TAX_FIELDS: TaxField[] = [
     max: 100,
     step: 1,
     description:
-      'Taxes business profit. High rates push capital offshore; very low rates invite a haven boom.',
+      'Taxes business profit. Below 20% it lifts GDP growth; above 20% it drags growth down. Very low rates invite a haven boom.',
     icon: 'Factory',
   },
   {
@@ -52,7 +55,7 @@ const TAX_FIELDS: TaxField[] = [
     max: 100,
     step: 1,
     description:
-      'Taxes household income. Broad and politically sensitive; drives approval and inequality.',
+      'Taxes household income. Below 20% it eases depression; above 20% it deepens it. Broad and politically sensitive.',
     icon: 'Users',
   },
   {
@@ -333,7 +336,7 @@ export function Governance() {
 
       <SectionCard
         title="Tax policy"
-        subtitle="Each applied change costs one action. The Laffer curve responds immediately; events may follow."
+        subtitle="Each applied change costs one action. Corporate tax moves GDP growth; income tax moves depression. The Laffer curve responds immediately."
         action={
           <Badge tone="accent" icon="Dices">
             {game.actionsLeft} actions left
@@ -379,6 +382,22 @@ export function Governance() {
                   <span>{max}%</span>
                 </div>
                 <p>{field.description}</p>
+                {field.key === 'corporate' && (
+                  <span
+                    className={`tax-effect ${corporateTaxGrowthEffect(draft) >= 0 ? 'text-positive' : 'text-negative'}`}
+                  >
+                    GDP growth {corporateTaxGrowthEffect(draft) >= 0 ? '+' : ''}
+                    {(corporateTaxGrowthEffect(draft) * 100).toFixed(2)}%/turn at {value}%
+                  </span>
+                )}
+                {field.key === 'income' && (
+                  <span
+                    className={`tax-effect ${incomeTaxDepressionEffect(draft) <= 0 ? 'text-positive' : 'text-negative'}`}
+                  >
+                    Depression {incomeTaxDepressionEffect(draft) >= 0 ? '+' : ''}
+                    {incomeTaxDepressionEffect(draft).toFixed(1)} points at {value}%
+                  </span>
+                )}
                 <div className="tax-card-actions">
                   <span className={changed ? 'text-warning' : 'text-muted'}>
                     {changed
@@ -462,10 +481,10 @@ export function Governance() {
             const entry = player.ministries[ministry.id]
             const cost = player.stats.gdp * MINISTRY_COST_FACTORS[entry.budget]
             const tier = entry.level ?? 1
-            const replaceCost = Math.max(25, player.stats.gdp * 0.0015)
-            const auditCost = Math.max(15, player.stats.gdp * 0.0008)
-            const upgradeCost = Math.max(40, player.stats.gdp * 0.0025 * tier)
-            const trainCost = Math.max(20, player.stats.gdp * 0.001)
+            const replaceCost = ministryActionCost(player, ministry.id, 'replace')
+            const auditCost = ministryActionCost(player, ministry.id, 'audit')
+            const upgradeCost = ministryActionCost(player, ministry.id, 'upgrade')
+            const trainCost = ministryActionCost(player, ministry.id, 'train')
             return (
               <div
                 key={ministry.id}
@@ -477,7 +496,9 @@ export function Governance() {
                   </span>
                   <div className="ministry-title">
                     <h3>{ministry.name.replace('Ministry of ', '')}</h3>
-                    <span>Tier {tier}/5 · {ministry.focus}</span>
+                    <span>
+                      Tier {tier}/5 · {ministry.focus}
+                    </span>
                   </div>
                   <Badge
                     tone={
@@ -505,7 +526,11 @@ export function Governance() {
                     type="button"
                     className="briefing-action-btn"
                     onClick={() => auditMinister(ministry.id)}
-                    disabled={game.actionsLeft < 1 || player.stats.treasury < auditCost || entry.head.corruption === 0}
+                    disabled={
+                      game.actionsLeft < 1 ||
+                      player.stats.treasury < auditCost ||
+                      entry.head.corruption === 0
+                    }
                     title={`Audit minister corruption (-20) · ${formatMoney(auditCost)} · 1 action`}
                   >
                     <Icon name="Search" size={12} />
@@ -516,7 +541,9 @@ export function Governance() {
                     type="button"
                     className="briefing-action-btn"
                     onClick={() => upgradeMinistry(ministry.id)}
-                    disabled={game.actionsLeft < 1 || player.stats.treasury < upgradeCost || tier >= 5}
+                    disabled={
+                      game.actionsLeft < 1 || player.stats.treasury < upgradeCost || tier >= 5
+                    }
                     title={`Upgrade ministry tier (+1 Tier, +6 Skill) · ${formatMoney(upgradeCost)} · 1 action`}
                   >
                     <Icon name="ArrowUpCircle" size={12} />
@@ -527,7 +554,11 @@ export function Governance() {
                     type="button"
                     className="briefing-action-btn"
                     onClick={() => trainMinister(ministry.id)}
-                    disabled={game.actionsLeft < 1 || player.stats.treasury < trainCost || (entry.head.skill >= 100 && entry.head.loyalty >= 100)}
+                    disabled={
+                      game.actionsLeft < 1 ||
+                      player.stats.treasury < trainCost ||
+                      (entry.head.skill >= 100 && entry.head.loyalty >= 100)
+                    }
                     title={`Train minister (+12 Skill, +10 Loyalty) · ${formatMoney(trainCost)} · 1 action`}
                   >
                     <Icon name="GraduationCap" size={12} />

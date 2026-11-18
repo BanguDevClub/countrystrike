@@ -100,14 +100,15 @@ The game features over 600 handcrafted, thematic events located in `src/game/min
 
 ### 3. GDP Growth Engine
 
-- **Decomposed Drivers** (`gdpGrowthDrivers` in `selectors.ts`): base expansion, industrial scale (capped at +1.5%/turn), technology advances, military demand, resource production share (`production value / GDP × 0.03`), positive resource surplus, stock buffers, shortages/deficits, reserve depletion, fiscal balance, debt burden, treasury reserve, tax burden, corruption and trait/cabinet effects.
+- **Decomposed Drivers** (`gdpGrowthDrivers` in `selectors.ts`): base expansion, industrial scale (capped at +1.5%/turn), technology advances, military demand, resource production share (`production value / GDP × 0.03`), positive resource surplus, stock buffers, shortages/deficits, reserve depletion, fiscal balance, debt burden, treasury reserve, tax burden, corporate tax competitiveness (`(20 − corporate) × 0.0008`, capped ±1%/turn), corruption and trait/cabinet effects.
 - **Negative Pressure**:
   - Debt-to-GDP above 60%: `−0.008` per 100 points; above 120%: an additional `−0.012` per 100 points.
   - Zero treasury: `−0.005`/turn; treasury below 1% of GDP: `−0.002`/turn.
-  - Each resource in shortage or under four turns of stock cover: share of a `−0.012` penalty.
+  - Each resource in shortage or under four turns of stock cover: share of a `−0.009` penalty.
   - Reserve depletion below 20 turns of runway: up to `−0.005`/turn.
 - **Positive Pressure**: resource production share, positive resource balances, global stock cover, funded treasury (>20% of GDP) and a positive fiscal balance.
 - **Immediate Action Growth**: Industrial upgrades, breakthrough discoveries (+0.8%), and military recruitment stimulate the economy and immediately increase GDP base value.
+- **Income tax and depression**: the depression target adds `(income tax − 20) × 0.18`, so income tax below 20% eases depression and above 20% deepens it.
 - The Budget page renders every driver, and the Methodology page documents the equations.
 
 ### 4. Resource Market & Prices
@@ -115,9 +116,20 @@ The game features over 600 handcrafted, thematic events located in `src/game/min
 - **Global market pass** (`runWorldMarket` in `engine.ts`): each turn rival exporters with a surplus are matched to rival importers with a deficit. Contracts last 2–4 turns and move real quantities, money and price coverage.
 - **Price drivers** (`computeMarket` in `selectors.ts`): aggregate supply/demand, per-country deficits, active export volume covering those deficits, global stock cover and reserve depletion.
 - **Reference price**: `basePrice × settings.resourcePrices × pressure`, clamped to 0.35–3.6 pressure. Prices blend toward the target each turn using `settings.marketVolatility` for noise and convergence speed.
+- **Starting scarcity** (`makeResources` in `worldgen.ts`): every country gets one commodity endowment; 65% also get a strategic endowment. Non-endowed commodity production starts at 42–90% of consumption and non-endowed strategic production at 15–55%. Thirty percent of non-endowed strategic deposits are barren. Most starting flows are therefore in deficit.
+- **Royalty revenue**: `min(production value × royalty rate × 0.35, 15% of GDP)`. The cap prevents micro-economies with large deposits from generating runaway income.
 - **Trade screen**: shows the world market clearing table (supply, demand, deficit, exports, coverage, reserve cover, pressure), live player contracts and world contracts.
 
-### 5. Turn Briefing & Event Modal Architecture
+### 5. Action Costs & Tax Levers
+
+- **No GDP scaling for purchases**: industry operations, cabinet actions, diplomacy, approval campaigns, mergers and war mobilisation use fixed base costs scaled by resource/ministry level.
+- **Industry cost**: `action base × (1 + 0.12 × extraction+refinement levels + 0.25 × advances) × category factor × industry budget factor`. Strategic resources use a 3.0× category factor.
+- **Cabinet cost**: `action base × (1 + 0.4 × (tier − 1))`, using `ministryActionCost`, `diplomaticMissionCost`, `approvalCampaignCost`, `mergerCost` and `warMobilizationCost` from `engine.ts`.
+- **Recurring ministry budgets** remain a share of GDP because they are policy rates, not one-off purchases.
+- **Corporate tax**: below 20% adds GDP growth, above 20% subtracts it (capped ±1%/turn).
+- **Income tax**: below 20% lowers the depression target, above 20% raises it.
+
+### 6. Turn Briefing & Event Modal Architecture
 
 - **Once-Per-Turn Execution**: At the start of every turn, the briefing modal opens automatically.
 - **Turn Event Pagination**: When multiple events occur in a turn (e.g. sovereign bailout request + ministry event + national crisis), the modal provides full pagination:

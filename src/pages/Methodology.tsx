@@ -185,19 +185,24 @@ export function Methodology() {
             </p>
             <p>
               The map is generated with a seeded Voronoi partition of each continent. Country GDP
-              starts as population × GDP per capita. The setup screen scales the economy: resource
-              prices multiply every reference price, scarcity shrinks reserves and stockpiles,
-              starting treasury and debt shift the opening balance sheet, and starting industry
-              scales extraction and refinement capacity.
+              starts as population × GDP per capita. Every country receives one commodity endowment;
+              65% also receive a strategic endowment. Non-endowed flows start below consumption, and
+              strategic deposits are completely absent in 30% of non-endowed countries. The setup
+              screen scales the economy: resource prices multiply every reference price, scarcity
+              shrinks reserves and stockpiles, starting treasury and debt shift the opening balance
+              sheet, and starting industry scales extraction and refinement capacity.
             </p>
           </div>
           <div className="method-formula-col">
             <Formula tex={String.raw`\text{GDP}_0 = P_0 \times \text{GDP per capita}_0`} />
             <Formula
-              tex={String.raw`\text{Reserves}_0 = \frac{L_e \times C_{\text{res}} \times R}{S_{\text{scarcity}}},\quad R \in [55,190]`}
+              tex={String.raw`\text{Production}_0 = \text{consumption} \times f,\quad f \in [1.25,1.8]\ \text{endowed},\ [0.42,0.9]\ \text{commodity},\ [0.15,0.55]\ \text{strategic}`}
             />
             <Formula
-              tex={String.raw`\text{Extraction}_0 \approx \max(0.7C,\ \text{consumption} \times [0.72,1.38]) \cdot I_{\text{industry}}`}
+              tex={String.raw`\text{Reserves}_0 = \frac{L_e \times C_{\text{res}} \times R}{S_{\text{scarcity}}},\quad R \in [25,160]`}
+            />
+            <Formula
+              tex={String.raw`\text{Stock}_0 = \frac{\text{consumption}\times T}{S_{\text{scarcity}}},\quad T \in [1.5,8]`}
             />
             <Formula
               tex={String.raw`\text{Treasury}_0 \propto [3.5\%, 11\%]\,\text{GDP}\cdot M_{\text{treasury}}`}
@@ -418,10 +423,15 @@ export function Methodology() {
               0.2%. Each resource in shortage or with less than four turns of stock cover subtracts
               a further share.
             </p>
+            <p>
+              Corporate tax is a direct growth lever. A 20% rate is neutral; every point below adds
+              0.08% growth per turn and every point above subtracts the same, capped at ±1%. A lower
+              rate can still lose growth if it starves the budget, so the fiscal trade-off matters.
+            </p>
           </div>
           <div className="method-formula-col">
             <Formula
-              tex={String.raw`g_t=\operatorname{clamp}\left(0.006+g_{\text{industry}}+g_{\text{tech}}+g_{\text{military}}+g_{\text{resource}}+g_{\text{surplus}}+g_{\text{stock}}-g_{\text{shortage}}-g_{\text{depletion}}+g_{\text{fiscal}}-g_{\text{debt}}-g_{\text{treasury}}-g_{\text{tax}}-g_{\text{corruption}}+g_{\text{policy}}+\varepsilon,\ -0.06,\ 0.08\right)`}
+              tex={String.raw`g_t=\operatorname{clamp}\left(0.006+\textstyle\sum_i g_i+\varepsilon,\ -0.06,\ 0.08\right)`}
             />
             <Formula
               tex={String.raw`g_{\text{industry}}=\min(0.015,\ \text{industry levels}\times 0.00015)`}
@@ -436,7 +446,10 @@ export function Methodology() {
               tex={String.raw`g_{\text{debt}}=-\frac{\max(0,\text{debt/GDP}\% - 60)}{100}(0.008)-\frac{\max(0,\text{debt/GDP}\%-120)}{100}(0.012)`}
             />
             <Formula
-              tex={String.raw`g_{\text{shortage}}=-\frac{\text{resources in shortage}}{8}\times 0.012`}
+              tex={String.raw`g_{\text{shortage}}=-\frac{\text{resources in shortage}}{8}\times 0.009`}
+            />
+            <Formula
+              tex={String.raw`g_{\text{corp}}=\operatorname{clamp}\left((20-C)\times 0.0008,\ -0.01,\ 0.01\right)`}
             />
             <Formula tex={String.raw`\text{GDP}_{t+1}=\max(100,\ \text{GDP}_t(1+g_t))`} />
           </div>
@@ -461,6 +474,11 @@ export function Methodology() {
               tax-haven boom. A burden above 58 tends to generate a Laffer warning event. All four
               taxes are policy levers; each applied change costs one action.
             </p>
+            <p>
+              Corporate tax also moves GDP growth directly: below 20% it adds growth, above 20% it
+              subtracts it. Income tax moves depression in the same direction: below 20% households
+              feel relief, above 20% depression deepens.
+            </p>
           </div>
           <div className="method-formula-col">
             <Formula tex={String.raw`b = 0.35\,C + 0.35\,I + 0.05\,T + 0.25\,R`} />
@@ -477,8 +495,12 @@ export function Methodology() {
               tex={String.raw`\text{Tariff} = \min\left(\text{import value}\cdot\frac{T}{100},\ 0.18\,\text{GDP}\right)`}
             />
             <Formula
-              tex={String.raw`\text{Royalty} = \text{production value}\cdot\frac{R}{100}\cdot 0.35`}
+              tex={String.raw`\text{Royalty} = \min\left(\text{production value}\cdot\frac{R}{100}\cdot 0.35,\ 0.15\,\text{GDP}\right)`}
             />
+            <Formula
+              tex={String.raw`g_{\text{corp}}=\operatorname{clamp}((20-C)\times 0.0008,\ -0.01,\ 0.01)`}
+            />
+            <Formula tex={String.raw`\Delta D_{\text{tax}} = (I-20)\times 0.18`} />
           </div>
         </div>
         <p className="formula-note">
@@ -808,7 +830,7 @@ export function Methodology() {
               </div>
               <div>
                 <span className="category-dot strategic" /> Strategic cost factor{' '}
-                <strong>2.25×</strong>
+                <strong>3.0×</strong>
               </div>
               <div>
                 <span className="category-dot military" /> Military procurement uses stock, not cash
@@ -819,24 +841,68 @@ export function Methodology() {
           <div>
             <h3>Industry operation costs</h3>
             <p className="text-muted">
-              Cost = GDP × action factor × level factor × category factor, with a minimum.
+              Cost = base × level factor × category factor × industry budget factor. No GDP term.
             </p>
             <div className="reference-rows">
               <div>
                 <span>Prospect fields</span>
-                <strong>0.06% GDP × level</strong>
+                <strong>$70M base</strong>
               </div>
               <div>
                 <span>Upgrade extraction</span>
-                <strong>0.16% GDP × level</strong>
+                <strong>$140M base</strong>
               </div>
               <div>
                 <span>Upgrade refinement</span>
-                <strong>0.26% GDP × level</strong>
+                <strong>$200M base</strong>
               </div>
               <div>
                 <span>Research stimulus</span>
-                <strong>0.40% GDP × level</strong>
+                <strong>$260M base</strong>
+              </div>
+              <div>
+                <span>Level factor</span>
+                <strong>1 + 0.12 × levels + 0.25 × advances</strong>
+              </div>
+            </div>
+          </div>
+          <div>
+            <h3>Cabinet operation costs</h3>
+            <p className="text-muted">
+              Base × ministry tier factor, 1 + 0.4 × (tier − 1). No GDP term.
+            </p>
+            <div className="reference-rows">
+              <div>
+                <span>Replace minister</span>
+                <strong>$240M base</strong>
+              </div>
+              <div>
+                <span>Audit minister</span>
+                <strong>$120M base</strong>
+              </div>
+              <div>
+                <span>Train minister</span>
+                <strong>$180M base</strong>
+              </div>
+              <div>
+                <span>Upgrade ministry</span>
+                <strong>$480M base</strong>
+              </div>
+              <div>
+                <span>Diplomatic mission</span>
+                <strong>$90M base</strong>
+              </div>
+              <div>
+                <span>Approval campaign</span>
+                <strong>$180M base</strong>
+              </div>
+              <div>
+                <span>Merge administration</span>
+                <strong>$620M base</strong>
+              </div>
+              <div>
+                <span>War mobilisation</span>
+                <strong>$320M base</strong>
               </div>
             </div>
           </div>

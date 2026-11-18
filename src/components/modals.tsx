@@ -30,6 +30,13 @@ import {
   soldiersPer100k,
 } from '../game/selectors'
 import {
+  approvalCampaignCost,
+  diplomaticMissionCost,
+  mergerCost,
+  ministryActionCost,
+  warMobilizationCost,
+} from '../game/engine'
+import {
   formatDecimal,
   formatMoney,
   formatUsd,
@@ -211,9 +218,7 @@ function EventStatDiffView({
               <span className="stat-diff-text">
                 {d.beforeStr} → <strong>{d.afterStr}</strong>
               </span>
-              <span className={`stat-delta-badge ${toneClass}`}>
-                {isZero ? '0' : d.deltaStr}
-              </span>
+              <span className={`stat-delta-badge ${toneClass}`}>{isZero ? '0' : d.deltaStr}</span>
             </div>
           </div>
         )
@@ -276,7 +281,10 @@ function EventModal({ eventId }: { eventId?: string }) {
 
   const allHistory = game.eventHistory ?? []
   const historyTurns = Array.from(new Set(allHistory.map((h) => h.turn))).sort((a, b) => b - a)
-  const filteredHistory = historyTurnFilter === 'all' ? allHistory : allHistory.filter((h) => h.turn === historyTurnFilter)
+  const filteredHistory =
+    historyTurnFilter === 'all'
+      ? allHistory
+      : allHistory.filter((h) => h.turn === historyTurnFilter)
 
   const totalEvents = turnEventIds.length
   const validIndex = Math.min(eventIndex, Math.max(0, totalEvents - 1))
@@ -287,13 +295,16 @@ function EventModal({ eventId }: { eventId?: string }) {
     (event && currentEventId && !game.eventQueue.includes(currentEventId)),
   )
   const currentOutcome = currentEventId
-    ? resolvedOutcomes[currentEventId] ??
-      (game.lastOutcome?.eventId === currentEventId ? game.lastOutcome : null)
+    ? (resolvedOutcomes[currentEventId] ??
+      (game.lastOutcome?.eventId === currentEventId ? game.lastOutcome : null))
     : null
-  const historyMatch = allHistory.slice().reverse().find((h) => h.eventId === currentEventId)
+  const historyMatch = allHistory
+    .slice()
+    .reverse()
+    .find((h) => h.eventId === currentEventId)
 
-  const resolvedCount = turnEventIds.filter(
-    (id) => Boolean(resolvedOutcomes[id] || !game.eventQueue.includes(id)),
+  const resolvedCount = turnEventIds.filter((id) =>
+    Boolean(resolvedOutcomes[id] || !game.eventQueue.includes(id)),
   ).length
   const allEventsResolved = totalEvents > 0 && resolvedCount >= totalEvents
   const handleChoose = (choiceId: string) => {
@@ -397,7 +408,10 @@ function EventModal({ eventId }: { eventId?: string }) {
               ? `${resolvedCount} of ${totalEvents} event${totalEvents === 1 ? '' : 's'} resolved. Decisions apply immediately.`
               : `${game.actionsLeft} action${game.actionsLeft === 1 ? '' : 's'} available · Treasury ${formatMoney(player.stats.treasury)}`}
           </span>
-          <div className="briefing-footer-actions" style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+          <div
+            className="briefing-footer-actions"
+            style={{ display: 'flex', gap: '8px', alignItems: 'center' }}
+          >
             <button
               type="button"
               className={`btn btn-sm ${activeTab === 'event' ? 'btn-ghost' : 'btn-secondary'}`}
@@ -428,7 +442,9 @@ function EventModal({ eventId }: { eventId?: string }) {
               onClick={handleResolveAndProceed}
             >
               <Icon name="Check" size={14} />
-              {allEventsResolved ? 'Proceed to Turn' : `Resolve & Proceed (${resolvedCount}/${totalEvents})`}
+              {allEventsResolved
+                ? 'Proceed to Turn'
+                : `Resolve & Proceed (${resolvedCount}/${totalEvents})`}
             </button>
           </div>
         </>
@@ -473,7 +489,9 @@ function EventModal({ eventId }: { eventId?: string }) {
       {activeTab === 'history' ? (
         <div className="briefing-history-pane">
           <div className="history-turn-filter">
-            <span style={{ fontSize: '0.72rem', color: 'var(--muted)', marginRight: '6px' }}>Filter Turn:</span>
+            <span style={{ fontSize: '0.72rem', color: 'var(--muted)', marginRight: '6px' }}>
+              Filter Turn:
+            </span>
             <button
               type="button"
               className={`history-filter-pill ${historyTurnFilter === 'all' ? 'is-active' : ''}`}
@@ -494,7 +512,10 @@ function EventModal({ eventId }: { eventId?: string }) {
           </div>
 
           {filteredHistory.length === 0 ? (
-            <div className="empty-state" style={{ padding: '32px 0', textAlign: 'center', color: 'var(--muted)' }}>
+            <div
+              className="empty-state"
+              style={{ padding: '32px 0', textAlign: 'center', color: 'var(--muted)' }}
+            >
               <span style={{ opacity: 0.5, display: 'inline-block', marginBottom: '8px' }}>
                 <Icon name="ScrollText" size={28} />
               </span>
@@ -505,52 +526,53 @@ function EventModal({ eventId }: { eventId?: string }) {
             </div>
           ) : (
             <div className="history-list">
-              {filteredHistory.slice().reverse().map((rec) => (
-                <div key={rec.id} className="history-event-card">
-                  <div className="history-event-head">
-                    <div className="history-event-title-wrap">
-                      <Badge tone="accent">Turn {rec.turn}</Badge>
-                      {rec.rarity && (
-                        <Badge
-                          tone={
-                            rec.rarity === 'legendary'
-                              ? 'warning'
-                              : rec.rarity === 'epic'
-                                ? 'positive'
-                                : rec.rarity === 'rare'
-                                  ? 'accent'
-                                  : 'muted'
-                          }
-                        >
-                          {titleCase(rec.rarity)}
-                        </Badge>
-                      )}
-                      {rec.ministryId && (
-                        <Badge tone="neutral">
-                          {titleCase(rec.ministryId)}
-                        </Badge>
-                      )}
-                      <h4>{rec.title}</h4>
+              {filteredHistory
+                .slice()
+                .reverse()
+                .map((rec) => (
+                  <div key={rec.id} className="history-event-card">
+                    <div className="history-event-head">
+                      <div className="history-event-title-wrap">
+                        <Badge tone="accent">Turn {rec.turn}</Badge>
+                        {rec.rarity && (
+                          <Badge
+                            tone={
+                              rec.rarity === 'legendary'
+                                ? 'warning'
+                                : rec.rarity === 'epic'
+                                  ? 'positive'
+                                  : rec.rarity === 'rare'
+                                    ? 'accent'
+                                    : 'muted'
+                            }
+                          >
+                            {titleCase(rec.rarity)}
+                          </Badge>
+                        )}
+                        {rec.ministryId && (
+                          <Badge tone="neutral">{titleCase(rec.ministryId)}</Badge>
+                        )}
+                        <h4>{rec.title}</h4>
+                      </div>
+                      <span className="history-choice-badge">
+                        <Icon name="CheckCircle2" size={13} />
+                        <strong>{rec.choiceLabel}</strong>
+                      </span>
                     </div>
-                    <span className="history-choice-badge">
-                      <Icon name="CheckCircle2" size={13} />
-                      <strong>{rec.choiceLabel}</strong>
-                    </span>
+
+                    <p style={{ fontSize: '0.74rem', color: 'var(--muted)', margin: '4px 0' }}>
+                      {rec.body}
+                    </p>
+
+                    <EventStatDiffView before={rec.before} after={rec.after} />
+
+                    <div className="event-outcome-lines" style={{ marginTop: '4px' }}>
+                      {rec.lines.map((line: string, idx: number) => (
+                        <span key={idx}>• {line}</span>
+                      ))}
+                    </div>
                   </div>
-
-                  <p style={{ fontSize: '0.74rem', color: 'var(--muted)', margin: '4px 0' }}>
-                    {rec.body}
-                  </p>
-
-                  <EventStatDiffView before={rec.before} after={rec.after} />
-
-                  <div className="event-outcome-lines" style={{ marginTop: '4px' }}>
-                    {rec.lines.map((line: string, idx: number) => (
-                      <span key={idx}>• {line}</span>
-                    ))}
-                  </div>
-                </div>
-              ))}
+                ))}
             </div>
           )}
         </div>
@@ -570,7 +592,9 @@ function EventModal({ eventId }: { eventId?: string }) {
               <div className="briefing-pills">
                 {turnEventIds.map((id, idx) => {
                   const ev = id ? resolveEventForGame(game, id) : null
-                  const isDone = Boolean(id && (resolvedOutcomes[id] || !game.eventQueue.includes(id)))
+                  const isDone = Boolean(
+                    id && (resolvedOutcomes[id] || !game.eventQueue.includes(id)),
+                  )
                   const shortTitle = ev ? ev.title.split(':')[0] : `Event ${idx + 1}`
                   return (
                     <button
@@ -580,7 +604,9 @@ function EventModal({ eventId }: { eventId?: string }) {
                       onClick={() => setEventIndex(idx)}
                     >
                       {isDone ? <Icon name="Check" size={12} /> : null}
-                      <span>{idx + 1}. {shortTitle}</span>
+                      <span>
+                        {idx + 1}. {shortTitle}
+                      </span>
                     </button>
                   )
                 })}
@@ -621,10 +647,14 @@ function EventModal({ eventId }: { eventId?: string }) {
           )}
 
           {isCurrentResolved && (currentOutcome || historyMatch) && (
-            <div className={`event-outcome-card tone-${currentOutcome?.tone ?? historyMatch?.tone ?? 'positive'}`}>
+            <div
+              className={`event-outcome-card tone-${currentOutcome?.tone ?? historyMatch?.tone ?? 'positive'}`}
+            >
               <div className="event-outcome-title">
                 <Icon
-                  name={(currentOutcome?.tone ?? historyMatch?.tone) === 'positive' ? 'Check' : 'Info'}
+                  name={
+                    (currentOutcome?.tone ?? historyMatch?.tone) === 'positive' ? 'Check' : 'Info'
+                  }
                   size={16}
                 />
                 <span>Resolution: {currentOutcome?.title ?? historyMatch?.title}</span>
@@ -638,9 +668,11 @@ function EventModal({ eventId }: { eventId?: string }) {
                 <EventStatDiffView before={historyMatch.before} after={historyMatch.after} />
               )}
               <div className="event-outcome-lines">
-                {(currentOutcome?.lines ?? historyMatch?.lines ?? []).map((line: string, idx: number) => (
-                  <span key={idx}>• {line}</span>
-                ))}
+                {(currentOutcome?.lines ?? historyMatch?.lines ?? []).map(
+                  (line: string, idx: number) => (
+                    <span key={idx}>• {line}</span>
+                  ),
+                )}
               </div>
             </div>
           )}
@@ -660,8 +692,7 @@ function EventModal({ eventId }: { eventId?: string }) {
                   </span>
                   {choice.check ? (
                     <span className="event-choice-check">
-                      <Icon name="Dices" size={14} />
-                      d{choice.check.die} &gt; {choice.check.dc}
+                      <Icon name="Dices" size={14} />d{choice.check.die} &gt; {choice.check.dc}
                     </span>
                   ) : (
                     <Icon name="ChevronRight" size={18} className="choice-arrow" />
@@ -696,7 +727,9 @@ function EventModal({ eventId }: { eventId?: string }) {
             <div>
               <span className="text-muted">Treasury: </span>
               <strong>{formatMoney(player.stats.treasury)}</strong>
-              <span className="text-muted" style={{ marginLeft: '12px' }}>Actions: </span>
+              <span className="text-muted" style={{ marginLeft: '12px' }}>
+                Actions:{' '}
+              </span>
               <strong>{game.actionsLeft}/10</strong>
             </div>
           </div>
@@ -705,10 +738,10 @@ function EventModal({ eventId }: { eventId?: string }) {
             {MINISTRIES.map((ministry) => {
               const entry = player.ministries[ministry.id]
               const tier = entry.level ?? 1
-              const replaceCost = Math.max(25, player.stats.gdp * 0.0015)
-              const auditCost = Math.max(15, player.stats.gdp * 0.0008)
-              const upgradeCost = Math.max(40, player.stats.gdp * 0.0025 * tier)
-              const trainCost = Math.max(20, player.stats.gdp * 0.001)
+              const replaceCost = ministryActionCost(player, ministry.id, 'replace')
+              const auditCost = ministryActionCost(player, ministry.id, 'audit')
+              const upgradeCost = ministryActionCost(player, ministry.id, 'upgrade')
+              const trainCost = ministryActionCost(player, ministry.id, 'train')
               const turnCost = player.stats.gdp * (MINISTRY_COST_FACTORS[entry.budget] ?? 0.008)
 
               return (
@@ -722,7 +755,9 @@ function EventModal({ eventId }: { eventId?: string }) {
                     </span>
                     <div className="briefing-ministry-info">
                       <h4>{ministry.name.replace('Ministry of ', '')}</h4>
-                      <span>Tier {tier}/5 · {formatMoney(turnCost)}/turn</span>
+                      <span>
+                        Tier {tier}/5 · {formatMoney(turnCost)}/turn
+                      </span>
                     </div>
                     <Badge
                       tone={
@@ -738,7 +773,9 @@ function EventModal({ eventId }: { eventId?: string }) {
                   </div>
 
                   <div className="minister-row">
-                    <div className="minister-avatar">{entry.head.name.slice(0, 2).toUpperCase()}</div>
+                    <div className="minister-avatar">
+                      {entry.head.name.slice(0, 2).toUpperCase()}
+                    </div>
                     <div className="minister-copy">
                       <strong>{entry.head.name}</strong>
                       <span>
@@ -765,7 +802,10 @@ function EventModal({ eventId }: { eventId?: string }) {
                   </div>
 
                   <div className="ministry-budget">
-                    <div className="segmented segmented-small budget-segmented" style={{ width: '100%' }}>
+                    <div
+                      className="segmented segmented-small budget-segmented"
+                      style={{ width: '100%' }}
+                    >
                       {BUDGET_LEVELS.map((level) => (
                         <button
                           key={level.id}
@@ -786,7 +826,11 @@ function EventModal({ eventId }: { eventId?: string }) {
                       type="button"
                       className="briefing-action-btn"
                       onClick={() => auditMinister(ministry.id)}
-                      disabled={game.actionsLeft < 1 || player.stats.treasury < auditCost || entry.head.corruption === 0}
+                      disabled={
+                        game.actionsLeft < 1 ||
+                        player.stats.treasury < auditCost ||
+                        entry.head.corruption === 0
+                      }
                       title={`Audit minister corruption (-20) · ${formatMoney(auditCost)} · 1 action`}
                     >
                       <Icon name="Search" size={13} />
@@ -798,7 +842,9 @@ function EventModal({ eventId }: { eventId?: string }) {
                       type="button"
                       className="briefing-action-btn"
                       onClick={() => upgradeMinistry(ministry.id)}
-                      disabled={game.actionsLeft < 1 || player.stats.treasury < upgradeCost || tier >= 5}
+                      disabled={
+                        game.actionsLeft < 1 || player.stats.treasury < upgradeCost || tier >= 5
+                      }
                       title={`Upgrade ministry tier (+1 Tier, +6 Skill) · ${formatMoney(upgradeCost)} · 1 action`}
                     >
                       <Icon name="ArrowUpCircle" size={13} />
@@ -810,7 +856,11 @@ function EventModal({ eventId }: { eventId?: string }) {
                       type="button"
                       className="briefing-action-btn"
                       onClick={() => trainMinister(ministry.id)}
-                      disabled={game.actionsLeft < 1 || player.stats.treasury < trainCost || (entry.head.skill >= 100 && entry.head.loyalty >= 100)}
+                      disabled={
+                        game.actionsLeft < 1 ||
+                        player.stats.treasury < trainCost ||
+                        (entry.head.skill >= 100 && entry.head.loyalty >= 100)
+                      }
                       title={`Train minister (+12 Skill, +10 Loyalty) · ${formatMoney(trainCost)} · 1 action`}
                     >
                       <Icon name="GraduationCap" size={13} />
@@ -865,10 +915,10 @@ function CountryModal({ countryId }: { countryId: string }) {
   const continent = game.continents.find((entry) => entry.id === country.continentId)
   const relations = country.relations
   const integrationReady = relations >= 100 && country.externalApproval >= 100
-  const missionCost = Math.max(20, player.stats.gdp * 0.0005)
-  const approvalCost = Math.max(35, player.stats.gdp * 0.0008)
-  const mergeCost = Math.max(100, player.stats.gdp * 0.01)
-  const warCost = Math.max(50, player.stats.gdp * 0.004)
+  const missionCost = diplomaticMissionCost(player)
+  const approvalCost = approvalCampaignCost(player)
+  const mergeCost = mergerCost(player)
+  const warCost = warMobilizationCost(player)
   const canAct = game.actionsLeft > 0 && game.status === 'playing'
   const playerOwn = country.isPlayer
   const statusLabel =
@@ -1579,7 +1629,8 @@ export function ModalHost() {
     if (modal.kind === 'check') return <CheckModal check={modal.check} />
     if (modal.kind === 'result') return <ResultModal modal={modal} onClose={closeModal} />
     if (modal.kind === 'new-game') return <NewGameModal />
-    if (modal.kind === 'turn-briefing') return <EventModal eventId={modal.eventId ?? eventId ?? undefined} />
+    if (modal.kind === 'turn-briefing')
+      return <EventModal eventId={modal.eventId ?? eventId ?? undefined} />
   }
   if (eventId) return <EventModal eventId={eventId} />
   return null
