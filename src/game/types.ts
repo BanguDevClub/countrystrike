@@ -7,6 +7,7 @@ export type PageId =
   | 'budget'
   | 'governance'
   | 'industry'
+  | 'commerce'
   | 'military'
   | 'trade'
   | 'ranking'
@@ -23,6 +24,24 @@ export type ResourceId =
   'water' | 'energy' | 'agriculture' | 'livestock' | 'oil' | 'metal' | 'rareEarth' | 'uranium'
 
 export type ResourceCategory = 'commodity' | 'strategic'
+
+export type CommerceCategory = 'food' | 'energy' | 'manufactured' | 'services'
+
+export type CommerceGoodId =
+  | 'rice'
+  | 'eggs'
+  | 'chicken'
+  | 'beef'
+  | 'fuel'
+  | 'electricity'
+  | 'car'
+  | 'house'
+  | 'healthcare'
+  | 'education'
+  | 'transport'
+  | 'telecom'
+
+export type CurrencyRegime = 'floating' | 'managed' | 'pegged'
 
 export type GovernmentId =
   'democracy' | 'kingdom' | 'empire' | 'dictatorship' | 'communistAnarchy' | 'capitalistAnarchy'
@@ -46,6 +65,10 @@ export type CompositeMetricKey =
   | 'treasury'
   | 'debt'
   | 'gdp'
+  | 'gdpPerCapita'
+  | 'pppPerCapita'
+  | 'inflation'
+  | 'currency'
   | 'population'
   | 'militaryPower'
   | 'approval'
@@ -149,6 +172,23 @@ export interface CountryStats {
   depression: number
   security: number
   corruption: number
+  /** Annualised consumer-price inflation, percent per turn. */
+  inflation: number
+  /** GDP per capita adjusted for the consumer price level. */
+  pppPerCapita: number
+}
+
+export interface CurrencyState {
+  code: string
+  name: string
+  symbol: string
+  /** Local currency units per 1 credit. */
+  rate: number
+  /** Purchasing-power-parity fair value of the rate. */
+  fairRate: number
+  /** Last turn's move in the market rate, percent. */
+  changePct: number
+  regime: CurrencyRegime
 }
 
 export interface MapCell {
@@ -193,6 +233,9 @@ export interface Country {
   relations: number
   externalApproval: number
   autoDeal: Record<ResourceId, AutoDealMode>
+  /** Tax (positive) or subsidy (negative) rate per consumer good, percent. */
+  commercePolicy: Record<CommerceGoodId, number>
+  currency: CurrencyState
 }
 
 export interface TradeDeal {
@@ -254,6 +297,67 @@ export interface ResourceFlow {
   stockRunway?: number | null
 }
 
+export interface CommerceGoodSnapshot {
+  id: CommerceGoodId
+  /** Domestic units produced from available industry input. */
+  domesticSupply: number
+  /** Units bought on the world consumer market to cover a domestic gap. */
+  imported: number
+  /** Domestic surplus sold abroad. */
+  exported: number
+  /** Units supplied to households, domestic plus imports. */
+  supply: number
+  /** Baseline household need at current population. */
+  demand: number
+  /** Household need after the tax or subsidy changes consumption. */
+  effectiveDemand: number
+  coverage: number
+  domesticCoverage: number
+  shortage: number
+  /** Market price before taxes or subsidies, in credits. */
+  marketPrice: number
+  /** Consumer price after taxes or subsidies, in credits. */
+  price: number
+  /** Consumer price in local currency. */
+  localPrice: number
+  /** Positive tax collected or negative subsidy paid, in millions of credits. */
+  fiscal: number
+  /** Amount paid for consumer imports, in millions of credits. */
+  importCost: number
+  /** Revenue from consumer exports, in millions of credits. */
+  exportRevenue: number
+}
+
+export interface CommerceSnapshot {
+  goods: Record<CommerceGoodId, CommerceGoodSnapshot>
+  /** Weighted consumer price index, 100 = base prices with no levy. */
+  basketIndex: number
+  /** Weighted share of demand met by supply, 0–1. */
+  availability: number
+  /** Food, energy, shelter and health availability, 0–1. */
+  essentialsAvailability: number
+  /** Weighted share of demand left unmet, 0–1. */
+  shortageShare: number
+  /** Cost of the household basket per million citizens, in millions of credits. */
+  householdCost: number
+  /** Household consumption capacity divided by basket cost. */
+  affordability: number
+  taxRevenue: number
+  subsidyCost: number
+  importCost: number
+  exportRevenue: number
+  /** Levies + exports − subsidies − imports. */
+  fiscalNet: number
+  /** Growth contributions consumed by the GDP engine. */
+  commerceGrowth: number
+  costOfLivingGrowth: number
+  inflationGrowth: number
+  /** Social pressures consumed by the turn settlement. */
+  approvalDelta: number
+  depressionDelta: number
+  hdiDelta: number
+}
+
 export interface BudgetLine {
   key: string
   label: string
@@ -272,6 +376,7 @@ export interface BudgetBreakdown {
   debtLimit: number
   treasuryAfterTick: number
   debtAfterTick: number
+  commerce: CommerceSnapshot
 }
 
 export interface CountrySnapshot {
@@ -289,6 +394,11 @@ export interface CountrySnapshot {
   militaryPower: number
   relations: number
   externalApproval: number
+  inflation: number
+  fxRate: number
+  gdpPerCapita: number
+  pppPerCapita: number
+  currencyGap: number
   composite: number
 }
 
@@ -308,6 +418,8 @@ export interface HistoryPoint {
   prices: Record<ResourceId, number>
   resources: Record<ResourceId, ResourceFlow>
   countries: Record<string, CountrySnapshot>
+  inflation: number
+  fxRate: number
 }
 
 export interface LogEntry {

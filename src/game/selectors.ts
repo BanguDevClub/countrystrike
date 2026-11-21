@@ -1,5 +1,6 @@
 import {
   BUDGET_MULTIPLIERS,
+  COMMERCE_GOODS,
   COMPOSITE_METRICS,
   COMPOSITE_WEIGHT_TOTAL,
   DIFFICULTY_BY_ID,
@@ -16,6 +17,9 @@ import {
 import type {
   BudgetBreakdown,
   BudgetLevel,
+  CommerceGoodId,
+  CommerceGoodSnapshot,
+  CommerceSnapshot,
   CompositeMetricKey,
   Country,
   CountrySnapshot,
@@ -152,6 +156,13 @@ export function gdpPerCapita(country: Country): number {
 
 export function debtToGdp(country: Country): number {
   return country.stats.gdp > 0 ? (country.stats.debt / country.stats.gdp) * 100 : 0
+}
+
+/** Absolute deviation of the market rate from purchasing-power-parity fair value, percent. */
+export function currencyGap(country: Country): number {
+  const currency = country.currency
+  if (!currency || currency.fairRate <= 0) return 0
+  return roundTo(Math.abs((currency.rate / currency.fairRate - 1) * 100), 2)
 }
 
 export function debtLimit(country: Country): number {
@@ -441,6 +452,204 @@ export function resourceValuation(flows: Record<ResourceId, ResourceFlow>): {
   return { productionValue, stockValue, reserveValue }
 }
 
+/** Service capacity rises with human development and the industrial/finance administration. */
+function serviceCapacityFactor(country: Country, goodId: CommerceGoodId): number {
+  if (
+    goodId !== 'healthcare' &&
+    goodId !== 'education' &&
+    goodId !== 'transport' &&
+    goodId !== 'telecom'
+  ) {
+    return 1
+  }
+  const industry = BUDGET_MULTIPLIERS[country.ministries.industry.budget]
+  const finance = BUDGET_MULTIPLIERS[country.ministries.finance.budget]
+  const health =
+    goodId === 'healthcare' ? BUDGET_MULTIPLIERS[country.ministries.health.budget] * 0.12 : 0
+  return clamp(
+    0.78 + (country.stats.hdi - 0.5) * 0.7 + (industry + finance) * 0.05 + health,
+    0.55,
+    1.5,
+  )
+}
+
+/**
+ * The citizen checkout: household demand is met from the domestic input
+ * available after trade, then priced by coverage. Policy rates move consumer
+ * prices and fiscal balances, and the basket feeds GDP, approval, depression
+ * and HDI.
+ */
+export function computeCommerce(
+  country: Country,
+  flows: Record<ResourceId, ResourceFlow>,
+  policyOverride?: Partial<Record<CommerceGoodId, number>>,
+): CommerceSnapshot {
+  const goods = {} as Record<CommerceGoodId, CommerceGoodSnapshot>
+  const population = Math.max(0.1, country.stats.population)
+  const currencyRate = Math.max(0.0001, country.currency?.rate ?? 1)
+  let weightTotal = 0
+  let basketWeighted = 0
+  let availabilityWeighted = 0
+  let essentialsWeighted = 0
+  let essentialsWeightTotal = 0
+  let shortageWeighted = 0
+  let householdCost = 0
+  let taxRevenue = 0
+  let subsidyCost = 0
+  let importCost = 0
+  let exportRevenue = 0
+
+  for (const def of COMMERCE_GOODS) {
+    const flow = flows[def.resource]
+    const netInput = flow ? Math.max(0, flow.production + flow.imports - flow.exports) : 0
+    const domesticSupply =
+      (netInput * def.resourceShare * serviceCapacityFactor(country, def.id)) /
+      Math.max(0.000001, def.inputPerUnit)
+    const demand = population * def.demandPerMillion
+    const policy = clamp(
+      policyOverride?.[def.id] ?? country.commercePolicy?.[def.id] ?? 0,
+      -60,
+      120,
+    )
+    const policyFactor = 1 + policy / 100
+    const policyDemandFactor = clamp(1 - (policy / 100) * def.elasticity * 0.55, 0.55, 1.35)
+    const effectiveDemand = demand * policyDemandFactor
+    const domesticCoverage = domesticSupply / Math.max(effectiveDemand, 0.000001)
+    const importCap =
+      def.category === 'services' ? 0.4 : def.category === 'manufactured' ? 0.6 : 0.8
+    const imported = effectiveDemand * clamp((1 - domesticCoverage) * 0.85, 0, importCap)
+    const exported = Math.max(0, domesticSupply - effectiveDemand)
+    const supply = domesticSupply + imported
+    const coverage = supply / Math.max(effectiveDemand, 0.000001)
+    const importedShare = imported / Math.max(effectiveDemand, 0.000001)
+    const pricePressure = clamp(
+      Math.pow(effectiveDemand / Math.max(supply, 0.000001), def.elasticity) *
+        (1 + importedShare * 0.2),
+      0.4,
+      3,
+    )
+    const marketPrice = def.basePrice * pricePressure
+    const price = marketPrice * policyFactor
+    const sold = Math.max(0, Math.min(supply, effectiveDemand))
+    const fiscal = marketPrice * sold * (policy / 100)
+    const weight = def.demandPerMillion * def.basePrice
+    const localPrice = price * currencyRate
+    const shortage = Math.max(0, effectiveDemand - supply)
+    const goodImportCost = imported * marketPrice
+    const goodExportRevenue = exported * marketPrice * 0.95
+
+    goods[def.id] = {
+      id: def.id,
+      domesticSupply,
+      imported,
+      exported,
+      supply,
+      demand,
+      effectiveDemand,
+      coverage,
+      domesticCoverage,
+      shortage,
+      marketPrice,
+      price,
+      localPrice,
+      fiscal,
+      importCost: goodImportCost,
+      exportRevenue: goodExportRevenue,
+    }
+
+    weightTotal += weight
+    basketWeighted += weight * (price / def.basePrice)
+    availabilityWeighted += weight * Math.min(1, coverage)
+    shortageWeighted += weight * Math.max(0, 1 - coverage)
+    householdCost += def.demandPerMillion * price
+    if (fiscal >= 0) taxRevenue += fiscal
+    else subsidyCost += -fiscal
+    importCost += goodImportCost
+    exportRevenue += goodExportRevenue
+    if (def.essential) {
+      essentialsWeighted += weight * Math.min(1, coverage)
+      essentialsWeightTotal += weight
+    }
+  }
+
+  const safeWeight = Math.max(0.0001, weightTotal)
+  const basketIndex = (basketWeighted / safeWeight) * 100
+  const availability = availabilityWeighted / safeWeight
+  const essentialsAvailability = essentialsWeighted / Math.max(0.0001, essentialsWeightTotal)
+  const shortageShare = clamp(shortageWeighted / safeWeight, 0, 1)
+  const gdpPerCapitaValue = country.stats.gdp / population
+  const affordability = clamp((gdpPerCapitaValue * 0.4) / Math.max(1, householdCost), 0.1, 3)
+  const inflation = country.stats.inflation ?? 0
+
+  const commerceGrowth = clamp(
+    (availability - 0.82) * 0.02 + (affordability - 1.2) * 0.004,
+    -0.012,
+    0.012,
+  )
+  const costOfLivingGrowth = -clamp((basketIndex - 100) / 100, -0.15, 0.35) * 0.04
+  const inflationGrowth = -clamp((inflation - 4) / 100, 0, 0.4) * 0.05
+
+  return {
+    goods,
+    basketIndex,
+    availability,
+    essentialsAvailability,
+    shortageShare,
+    householdCost,
+    affordability,
+    taxRevenue,
+    subsidyCost,
+    importCost,
+    exportRevenue,
+    fiscalNet: taxRevenue - subsidyCost,
+    commerceGrowth,
+    costOfLivingGrowth,
+    inflationGrowth,
+    approvalDelta: clamp(
+      (availability - 0.82) * 8 +
+        (affordability - 1.2) * 1.2 -
+        Math.max(0, basketIndex - 100) * 0.025 -
+        Math.max(0, inflation - 5) * 0.12 -
+        shortageShare * 4.5,
+      -10,
+      6,
+    ),
+    depressionDelta:
+      shortageShare * 14 + Math.max(0, inflation - 5) * 0.2 + Math.max(0, basketIndex - 100) * 0.03,
+    hdiDelta:
+      (availability - 0.8) * 0.06 +
+      (affordability - 1.2) * 0.015 -
+      shortageShare * 0.05 -
+      Math.max(0, inflation - 8) * 0.0015,
+  }
+}
+
+/** Expected inflation from deficit monetisation, shortages, basket pressure and FX pass-through. */
+export function inflationTarget(
+  country: Country,
+  commerce: CommerceSnapshot,
+  budget: BudgetBreakdown,
+  growth = 0,
+): number {
+  const gdp = Math.max(1, country.stats.gdp)
+  const deficitShare = Math.max(0, -budget.net / gdp)
+  const monetisation = country.stats.treasury <= 0 ? 1.8 : 0.6
+  const financeLevel = BUDGET_MULTIPLIERS[country.ministries.finance.budget]
+  const credibility =
+    0.6 + country.stats.approval / 200 + country.stats.security / 200 + financeLevel * 0.06
+  const fxPassThrough = clamp(country.currency?.changePct ?? 0, 0, 15) * 0.12
+  const target =
+    2.5 +
+    deficitShare * 45 * monetisation +
+    commerce.shortageShare * 14 +
+    Math.max(0, commerce.basketIndex - 100) * 0.02 +
+    Math.max(0, growth) * 20 +
+    fxPassThrough -
+    credibility * 1.1 -
+    Math.max(0, (country.stats.inflation ?? 0) - 8) * 0.3
+  return roundTo(clamp(target, -3, 45), 2)
+}
+
 export interface GdpDriver {
   key: string
   label: string
@@ -455,7 +664,9 @@ export function gdpGrowthDrivers(
   country: Country,
   flows: Record<ResourceId, ResourceFlow>,
   budget: BudgetBreakdown,
+  commerce?: CommerceSnapshot,
 ): GdpDriver[] {
+  const market = commerce ?? computeCommerce(country, flows)
   const modifiers = combinedModifiers(country)
   const gdp = Math.max(1, country.stats.gdp)
   const highBudgets = MINISTRY_IDS.filter((id) => country.ministries[id].budget === 'high').length
@@ -500,8 +711,11 @@ export function gdpGrowthDrivers(
   const treasuryRatio = country.stats.treasury / gdp
   const netRatio = budget.net / gdp
   const burden = budget.taxBurden
-  const debtBurden =
-    -(Math.max(0, debtRatio - 60) / 100) * 0.008 - (Math.max(0, debtRatio - 120) / 100) * 0.012
+  const debtBurden = clamp(
+    -(Math.max(0, debtRatio - 60) / 100) * 0.008 - (Math.max(0, debtRatio - 120) / 100) * 0.012,
+    -0.25,
+    0,
+  )
   const treasuryStress =
     country.stats.treasury <= 0
       ? -0.005
@@ -551,6 +765,21 @@ export function gdpGrowthDrivers(
       value: corporateTaxGrowthEffect(country.taxes),
     },
     {
+      key: 'commerce',
+      label: 'Consumer commerce',
+      value: market.commerceGrowth,
+    },
+    {
+      key: 'costOfLiving',
+      label: 'Cost of living',
+      value: market.costOfLivingGrowth,
+    },
+    {
+      key: 'inflation',
+      label: 'Inflation drag',
+      value: market.inflationGrowth,
+    },
+    {
       key: 'corruption',
       label: 'Corruption drag',
       value: -(country.stats.corruption / 100) * 0.004,
@@ -594,6 +823,7 @@ export function computeBudget(
   prices: Record<ResourceId, number>,
 ): BudgetBreakdown {
   const flows = resourceFlows(country, deals, prices)
+  const commerce = computeCommerce(country, flows)
   const burden = taxBurden(country.taxes)
   const laffer = lafferAtBurden(burden)
   const collection = effectiveTaxCollection(country)
@@ -648,6 +878,12 @@ export function computeBudget(
       hint: `${country.taxes.royalty}% royalty share on resource production`,
     },
     {
+      key: 'commerce',
+      label: 'Commerce levies',
+      amount: commerce.taxRevenue,
+      hint: 'Consumer taxes on the household checkout',
+    },
+    {
       key: 'exports',
       label: 'Trade exports',
       amount: exportValue,
@@ -689,6 +925,12 @@ export function computeBudget(
       hint: 'Pensions, transfers and statutory services',
     },
     {
+      key: 'subsidies',
+      label: 'Consumer subsidies',
+      amount: commerce.subsidyCost,
+      hint: 'Price supports paid through the household checkout',
+    },
+    {
       key: 'interest',
       label: 'Debt interest',
       amount: interest,
@@ -719,6 +961,7 @@ export function computeBudget(
     debtLimit: debtLimit(country),
     treasuryAfterTick,
     debtAfterTick,
+    commerce,
   }
 }
 
@@ -727,10 +970,7 @@ const normalize = (value: number, min: number, max: number): number => {
   return clamp((value - min) / (max - min), 0, 1)
 }
 
-const metricValue = (
-  country: Pick<Country, 'stats' | 'military'> & { militaryPower?: number },
-  key: CompositeMetricKey,
-): number => {
+const metricValue = (country: Country, key: CompositeMetricKey): number => {
   switch (key) {
     case 'treasury':
       return Math.log10(Math.max(0, country.stats.treasury) + 1)
@@ -738,10 +978,23 @@ const metricValue = (
       return Math.log10(Math.max(0, country.stats.debt) + 1)
     case 'gdp':
       return Math.log10(Math.max(1, country.stats.gdp))
+    case 'gdpPerCapita':
+      return Math.log10(Math.max(1, country.stats.gdp / Math.max(0.1, country.stats.population)))
+    case 'pppPerCapita':
+      return Math.log10(
+        Math.max(
+          1,
+          country.stats.pppPerCapita || country.stats.gdp / Math.max(0.1, country.stats.population),
+        ),
+      )
+    case 'inflation':
+      return Math.max(0, country.stats.inflation ?? 0)
+    case 'currency':
+      return currencyGap(country)
     case 'population':
       return Math.log10(Math.max(0.1, country.stats.population))
     case 'militaryPower':
-      return country.militaryPower ?? militaryPower(country as Country)
+      return militaryPower(country)
     case 'approval':
       return country.stats.approval
     case 'hdi':
@@ -822,6 +1075,11 @@ export function countrySnapshot(
     militaryPower: power,
     relations: country.relations,
     externalApproval: country.externalApproval,
+    inflation: country.stats.inflation,
+    fxRate: country.currency?.rate ?? 1,
+    gdpPerCapita: gdpPerCapita(country),
+    pppPerCapita: country.stats.pppPerCapita || gdpPerCapita(country),
+    currencyGap: currencyGap(country),
     composite,
   }
 }

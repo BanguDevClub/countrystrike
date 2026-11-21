@@ -213,8 +213,8 @@ export function Budget() {
               {formatSignedPercent(gdpGrowth * 100, 2)}
             </strong>
             <p>
-              The engine adds a small random term and clamps the final rate between −6.00% and
-              +8.00% per turn.
+              The engine adds a small random term and clamps the final rate between −50.00% and
+              +50.00% per turn.
             </p>
             <div className="gdp-summary-row">
               <span>Resource production</span>

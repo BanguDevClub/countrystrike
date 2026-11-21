@@ -1,5 +1,7 @@
 import type {
   BudgetLevel,
+  CommerceCategory,
+  CommerceGoodId,
   CompositeMetricKey,
   Difficulty,
   GameSettings,
@@ -23,7 +25,7 @@ export const GITHUB_URL = 'https://github.com/BanguDevClub/countrystrike'
 export const ACTIONS_PER_TURN = 10
 export const SAVE_KEY = 'countrystrike-save'
 export const PREFS_KEY = 'countrystrike-prefs'
-export const SAVE_VERSION = 2
+export const SAVE_VERSION = 4
 export const HISTORY_LIMIT = 80
 
 export const DEFAULT_SETTINGS: GameSettings = {
@@ -182,6 +184,247 @@ export const RESOURCE_BY_ID = Object.fromEntries(RESOURCES.map((r) => [r.id, r])
   ResourceId,
   ResourceDefinition
 >
+
+/* ── Consumer commerce ─────────────────────────────────────────────────── */
+
+export interface CommerceGoodDefinition {
+  id: CommerceGoodId
+  name: string
+  category: CommerceCategory
+  icon: string
+  unit: string
+  /** Reference consumer price in millions of credits per unit. */
+  basePrice: number
+  /** Input resource used by the consumer-goods industry. */
+  resource: ResourceId
+  /** Share of domestic input availability routed to this good. */
+  resourceShare: number
+  /** Resource units consumed per one consumer unit. */
+  inputPerUnit: number
+  /** Household need per million citizens per turn. */
+  demandPerMillion: number
+  /** Price sensitivity used for the market pressure curve. */
+  elasticity: number
+  essential: boolean
+  blurb: string
+}
+
+export const COMMERCE_GOODS: CommerceGoodDefinition[] = [
+  {
+    id: 'rice',
+    name: 'Rice & cereals',
+    category: 'food',
+    icon: 'Wheat',
+    unit: 'kt',
+    basePrice: 1,
+    resource: 'agriculture',
+    resourceShare: 0.35,
+    inputPerUnit: 0.02,
+    demandPerMillion: 120,
+    elasticity: 0.55,
+    essential: true,
+    blurb: 'The staple basket. A cereal deficit reaches every kitchen first.',
+  },
+  {
+    id: 'eggs',
+    name: 'Eggs',
+    category: 'food',
+    icon: 'Egg',
+    unit: 'kt',
+    basePrice: 2,
+    resource: 'livestock',
+    resourceShare: 0.06,
+    inputPerUnit: 0.008,
+    demandPerMillion: 18,
+    elasticity: 0.5,
+    essential: true,
+    blurb: 'Cheap protein and a sensitive early-warning price for farm supply.',
+  },
+  {
+    id: 'chicken',
+    name: 'Chicken',
+    category: 'food',
+    icon: 'Drumstick',
+    unit: 'kt',
+    basePrice: 2,
+    resource: 'livestock',
+    resourceShare: 0.3,
+    inputPerUnit: 0.012,
+    demandPerMillion: 44,
+    elasticity: 0.6,
+    essential: true,
+    blurb: 'The working household protein. Feed costs pass straight through.',
+  },
+  {
+    id: 'beef',
+    name: 'Beef',
+    category: 'food',
+    icon: 'Beef',
+    unit: 'kt',
+    basePrice: 7,
+    resource: 'livestock',
+    resourceShare: 0.35,
+    inputPerUnit: 0.025,
+    demandPerMillion: 20,
+    elasticity: 0.7,
+    essential: true,
+    blurb: 'The most resource-intensive meat and the most visible food-price line.',
+  },
+  {
+    id: 'fuel',
+    name: 'Fuel',
+    category: 'energy',
+    icon: 'Fuel',
+    unit: 'ML',
+    basePrice: 0.8,
+    resource: 'oil',
+    resourceShare: 0.45,
+    inputPerUnit: 0.004,
+    demandPerMillion: 350,
+    elasticity: 0.45,
+    essential: true,
+    blurb: 'Pumps, buses and deliveries. Fuel is the cost that spreads everywhere.',
+  },
+  {
+    id: 'electricity',
+    name: 'Electricity',
+    category: 'energy',
+    icon: 'Zap',
+    unit: 'GWh',
+    basePrice: 0.048,
+    resource: 'energy',
+    resourceShare: 0.5,
+    inputPerUnit: 0.001,
+    demandPerMillion: 5_000,
+    elasticity: 0.35,
+    essential: true,
+    blurb: 'Household power. A grid deficit is felt in every room and every factory.',
+  },
+  {
+    id: 'car',
+    name: 'Cars',
+    category: 'manufactured',
+    icon: 'Car',
+    unit: '1k cars',
+    basePrice: 12,
+    resource: 'metal',
+    resourceShare: 0.12,
+    inputPerUnit: 0.002,
+    demandPerMillion: 30,
+    elasticity: 0.9,
+    essential: false,
+    blurb: 'Metal-intensive durables. Demand collapses first when households tighten.',
+  },
+  {
+    id: 'house',
+    name: 'Housing',
+    category: 'manufactured',
+    icon: 'House',
+    unit: '1k homes',
+    basePrice: 120,
+    resource: 'metal',
+    resourceShare: 0.1,
+    inputPerUnit: 0.006,
+    demandPerMillion: 8,
+    elasticity: 0.7,
+    essential: true,
+    blurb: 'Shelter and construction. The largest single line in the household basket.',
+  },
+  {
+    id: 'healthcare',
+    name: 'Healthcare',
+    category: 'services',
+    icon: 'Stethoscope',
+    unit: '1k treatments',
+    basePrice: 0.12,
+    resource: 'water',
+    resourceShare: 0.04,
+    inputPerUnit: 0.00002,
+    demandPerMillion: 6_000,
+    elasticity: 0.3,
+    essential: true,
+    blurb: 'Clinics, medicines and treatment capacity. Scarcity feeds depression and HDI.',
+  },
+  {
+    id: 'education',
+    name: 'Education',
+    category: 'services',
+    icon: 'GraduationCap',
+    unit: '1k pupil-years',
+    basePrice: 2,
+    resource: 'energy',
+    resourceShare: 0.03,
+    inputPerUnit: 0.001,
+    demandPerMillion: 200,
+    elasticity: 0.4,
+    essential: false,
+    blurb: 'Schools and training. A slow-moving service that compounds into productivity.',
+  },
+  {
+    id: 'transport',
+    name: 'Transport',
+    category: 'services',
+    icon: 'Bus',
+    unit: '1k trips',
+    basePrice: 0.04,
+    resource: 'oil',
+    resourceShare: 0.04,
+    inputPerUnit: 0.00001,
+    demandPerMillion: 5_000,
+    elasticity: 0.6,
+    essential: false,
+    blurb: 'Buses, rail and freight. Fuel shortages show up as cancelled journeys.',
+  },
+  {
+    id: 'telecom',
+    name: 'Telecom & data',
+    category: 'services',
+    icon: 'Wifi',
+    unit: 'TB',
+    basePrice: 0.02,
+    resource: 'energy',
+    resourceShare: 0.08,
+    inputPerUnit: 0.00005,
+    demandPerMillion: 12_000,
+    elasticity: 0.5,
+    essential: false,
+    blurb: 'Connectivity and data. An energy-hungry service with high household weight.',
+  },
+]
+
+export const COMMERCE_GOOD_IDS = COMMERCE_GOODS.map((good) => good.id)
+export const COMMERCE_GOOD_BY_ID = Object.fromEntries(
+  COMMERCE_GOODS.map((good) => [good.id, good]),
+) as Record<CommerceGoodId, CommerceGoodDefinition>
+
+export const COMMERCE_CATEGORIES: { id: CommerceCategory; label: string }[] = [
+  { id: 'food', label: 'Food' },
+  { id: 'energy', label: 'Energy' },
+  { id: 'manufactured', label: 'Manufactured' },
+  { id: 'services', label: 'Services' },
+]
+
+/* ── Currencies ────────────────────────────────────────────────────────── */
+
+export interface CurrencyDenomination {
+  name: string
+  symbol: string
+}
+
+export const CURRENCY_DENOMINATIONS: CurrencyDenomination[] = [
+  { name: 'Dollar', symbol: '$' },
+  { name: 'Pound', symbol: '£' },
+  { name: 'Peso', symbol: '₱' },
+  { name: 'Rupee', symbol: '₨' },
+  { name: 'Yen', symbol: '¥' },
+  { name: 'Won', symbol: '₩' },
+  { name: 'Shekel', symbol: '₪' },
+  { name: 'Dong', symbol: '₫' },
+  { name: 'Hryvnia', symbol: '₴' },
+  { name: 'Naira', symbol: '₦' },
+  { name: 'Real', symbol: 'R$' },
+  { name: 'Krone', symbol: 'kr' },
+]
 
 /* ── Military ──────────────────────────────────────────────────────────── */
 
@@ -892,63 +1135,91 @@ export const COMPOSITE_METRICS: CompositeMetric[] = [
   {
     key: 'treasury',
     label: 'Treasure',
-    weight: 20,
+    weight: 14,
     direction: 'high',
     formula: 'normalize(log10(max(treasury, 0) + 1))',
   },
   {
     key: 'debt',
     label: 'Debt',
-    weight: 17,
+    weight: 12,
     direction: 'low',
-    formula: '1 − normalize(debt)',
+    formula: '1 − normalize(log10(debt + 1))',
   },
   {
     key: 'gdp',
     label: 'GDP',
-    weight: 15,
+    weight: 10,
     direction: 'high',
     formula: 'normalize(log10(GDP))',
   },
   {
+    key: 'gdpPerCapita',
+    label: 'GDP per capita',
+    weight: 9,
+    direction: 'high',
+    formula: 'normalize(log10(GDP / population))',
+  },
+  {
+    key: 'pppPerCapita',
+    label: 'PPP per capita',
+    weight: 9,
+    direction: 'high',
+    formula: 'normalize(log10(PPP per capita))',
+  },
+  {
+    key: 'inflation',
+    label: 'Inflation',
+    weight: 5,
+    direction: 'low',
+    formula: '1 − normalize(inflation)',
+  },
+  {
+    key: 'currency',
+    label: 'Currency gap',
+    weight: 4,
+    direction: 'low',
+    formula: '1 − normalize(|FX / fair FX − 1| × 100)',
+  },
+  {
     key: 'population',
     label: 'Population',
-    weight: 12,
+    weight: 9,
     direction: 'high',
     formula: 'normalize(log10(population))',
   },
   {
     key: 'militaryPower',
     label: 'Military Power',
-    weight: 10,
+    weight: 8,
     direction: 'high',
     formula: 'normalize(Σ units × power weight)',
   },
   {
     key: 'approval',
     label: 'Approval',
-    weight: 8,
+    weight: 6,
     direction: 'high',
     formula: 'normalize(approval)',
   },
   {
     key: 'hdi',
     label: 'HDI',
-    weight: 7,
+    weight: 5,
     direction: 'high',
     formula: 'normalize(HDI)',
   },
   {
     key: 'gini',
     label: 'Gini',
-    weight: 5,
+    weight: 4,
     direction: 'low',
     formula: '1 − normalize(Gini)',
   },
   {
     key: 'violence',
     label: 'Violence Rate',
-    weight: 3,
+    weight: 2,
     direction: 'low',
     formula: '1 − normalize(violence)',
   },
@@ -1282,6 +1553,14 @@ export const PAGES: PageDefinition[] = [
     title: 'Industry',
     subtitle: 'Prospect, extract, refine and research the resources underneath your feet.',
     icon: 'Factory',
+  },
+  {
+    id: 'commerce',
+    label: 'Commerce',
+    short: 'Commerce',
+    title: 'Commerce',
+    subtitle: 'The citizen checkout. Price the basket, tax or subsidise it, and watch inflation.',
+    icon: 'ShoppingBasket',
   },
   {
     id: 'military',

@@ -14,6 +14,7 @@ import {
 } from './constants'
 import type {
   BudgetBreakdown,
+  CommerceSnapshot,
   Country,
   CountrySnapshot,
   Difficulty,
@@ -40,6 +41,7 @@ import {
   gdpGrowthTotal,
   gdpPerCapita,
   incomeTaxDepressionEffect,
+  inflationTarget,
   isHostile,
   militaryPower,
   reserveRunway,
@@ -521,6 +523,7 @@ function updateCountryStats(
   country: Country,
   flows: Record<ResourceId, ResourceFlow>,
   budget: BudgetBreakdown,
+  commerce: CommerceSnapshot,
   rng: RNG,
 ): void {
   const modifiers = combinedModifiers(country)
@@ -539,20 +542,28 @@ function updateCountryStats(
     Math.max(0, country.stats.security - 50) * 0.012 +
     (modifiers.approval ?? 0) * 0.03 +
     (country.stats.gdp > 0 && budget.net > 0 ? 0.2 : -0.2) +
+    commerce.approvalDelta +
     rng.float(-0.5, 0.5)
   country.stats.approval = clamp(country.stats.approval + approvalDelta, 0, 100)
 
-  const growth = gdpGrowthTotal(gdpGrowthDrivers(country, flows, budget)) + rng.float(-0.003, 0.003)
-  country.stats.gdp = Math.max(100, country.stats.gdp * (1 + clamp(growth, -0.06, 0.08)))
+  const growth =
+    gdpGrowthTotal(gdpGrowthDrivers(country, flows, budget, commerce)) + rng.float(-0.003, 0.003)
+  country.stats.gdp = Math.max(100, country.stats.gdp * (1 + clamp(growth, -0.5, 0.5)))
   const populationGrowth =
     0.0025 +
     (country.stats.hdi - 0.5) * 0.002 +
     (modifiers.growth ?? 0) * 0.1 +
     country.stats.approval / 20_000 -
-    country.stats.depression / 30_000
+    country.stats.depression / 30_000 -
+    commerce.shortageShare * 0.0008 -
+    Math.max(0, country.stats.inflation - 10) * 0.00001
   country.stats.population = Math.max(
     0.3,
     roundTo(country.stats.population * (1 + clamp(populationGrowth, -0.004, 0.02)), 2),
+  )
+  country.stats.pppPerCapita = roundTo(
+    gdpPerCapita(country) / Math.max(0.2, commerce.basketIndex / 100),
+    0,
   )
 
   const healthBudget = BUDGET_MULTIPLIERS[country.ministries.health.budget]
@@ -568,7 +579,8 @@ function updateCountryStats(
       (healthBudget + 1) * 0.024 +
       healthMod +
       country.stats.approval / 900 -
-      country.stats.corruption / 1_400,
+      country.stats.corruption / 1_400 +
+      commerce.hdiDelta,
     0.2,
     0.97,
   )
@@ -579,7 +591,8 @@ function updateCountryStats(
       country.taxes.income * 0.045 +
       (country.taxes.corporate < 12 ? 3 : 0) +
       (country.ministries.health.budget === 'low' ? 2 : 0) +
-      (country.government === 'capitalistAnarchy' ? 5 : 0),
+      (country.government === 'capitalistAnarchy' ? 5 : 0) +
+      commerce.shortageShare * 4,
     18,
     68,
   )
@@ -606,12 +619,19 @@ function updateCountryStats(
       (100 - country.stats.approval) * 0.13 +
       (0.7 - country.stats.hdi) * 14 +
       country.stats.violence * 0.25 +
-      incomeTaxDepressionEffect(country.taxes),
+      incomeTaxDepressionEffect(country.taxes) +
+      commerce.depressionDelta,
     1,
     45,
   )
   country.stats.depression = roundTo(
     clamp(lerp(country.stats.depression, depressionTarget, 0.07) + rng.float(-0.2, 0.2), 1, 45),
+    1,
+  )
+
+  const targetInflation = inflationTarget(country, commerce, budget, growth)
+  country.stats.inflation = roundTo(
+    clamp(lerp(country.stats.inflation ?? 0, targetInflation, 0.22) + rng.float(-0.4, 0.4), -5, 80),
     1,
   )
 
@@ -673,6 +693,59 @@ function updateCountryStats(
   }
 }
 
+/* ── Currency parity ───────────────────────────────────────────────────── */
+
+/**
+ * Relative purchasing-power parity with a risk and trade-flow overlay. The
+ * fair rate drifts with the inflation differential, while the market rate
+ * mean-reverts toward it at a regime-dependent speed.
+ */
+function updateCurrencies(game: GameState, rng: RNG, budgets: Map<string, BudgetBreakdown>): void {
+  const living = livingCountries(game)
+  if (living.length === 0) return
+  const worldInflation =
+    living.reduce((total, country) => total + (country.stats.inflation ?? 0), 0) / living.length
+
+  for (const country of living) {
+    const currency = country.currency
+    const budget = budgets.get(country.id)
+    if (!currency || !budget) continue
+    const previousRate = Math.max(0.0001, currency.rate)
+    const relativeInflation = clamp((country.stats.inflation ?? 0) - worldInflation, -30, 40)
+    const fairMove = clamp((relativeInflation / 100) * 0.6, -0.04, 0.04)
+    const ppp = clamp(currency.fairRate * (1 + fairMove), 0.01, 1_000)
+    currency.fairRate = roundTo(ppp, 4)
+
+    const exportLine = budget.revenue.find((line) => line.key === 'exports')
+    const importLine = budget.expenses.find((line) => line.key === 'imports')
+    const tradeBalance =
+      (exportLine?.amount ?? 0) -
+      (importLine?.amount ?? 0) +
+      budget.commerce.exportRevenue -
+      budget.commerce.importCost
+    const tradePressure = -clamp(tradeBalance / Math.max(1, country.stats.gdp), -0.08, 0.08) * 0.25
+    const debtRatio = country.stats.gdp > 0 ? (country.stats.debt / country.stats.gdp) * 100 : 0
+    const riskPremium =
+      (Math.max(0, debtRatio - 60) / 100) * 0.02 +
+      (Math.max(0, 45 - country.stats.approval) / 100) * 0.03 +
+      budget.commerce.shortageShare * 0.015
+    const target = ppp * (1 + clamp(riskPremium + tradePressure, -0.12, 0.2))
+    const speed =
+      currency.regime === 'floating' ? 0.24 : currency.regime === 'managed' ? 0.12 : 0.03
+    const noiseScale =
+      currency.regime === 'floating' ? 0.015 : currency.regime === 'managed' ? 0.008 : 0.002
+    const maxMove =
+      currency.regime === 'floating' ? 0.12 : currency.regime === 'managed' ? 0.06 : 0.01
+    const next = clamp(
+      lerp(previousRate, target, speed) * (1 + rng.float(-noiseScale, noiseScale)),
+      previousRate * (1 - maxMove),
+      previousRate * (1 + maxMove),
+    )
+    currency.rate = roundTo(Math.max(0.01, next), 4)
+    currency.changePct = roundTo((currency.rate / previousRate - 1) * 100, 2)
+  }
+}
+
 /* ── History ───────────────────────────────────────────────────────────── */
 
 function captureHistory(
@@ -710,6 +783,8 @@ function captureHistory(
     prices: { ...game.prices },
     resources: resourceHistory,
     countries,
+    inflation: player.stats.inflation,
+    fxRate: player.currency?.rate ?? 1,
   }
   game.history.push(point)
   if (game.history.length > HISTORY_LIMIT)
@@ -853,10 +928,11 @@ export function advanceTurn(game: GameState): GameState {
       }
     }
 
-    updateCountryStats(country, flows, budget, rng)
+    updateCountryStats(country, flows, budget, budget.commerce, rng)
     if (country.id === player.id) playerFlows = flows
   }
 
+  updateCurrencies(game, rng, actualBudgets)
   updateRelations(game, player, rng)
   if (player.status === 'alive') runHostileAttacks(game, player, rng)
   updatePrices(game, flowsByCountry, rng)

@@ -43,13 +43,21 @@ world and its history are persisted in `localStorage` after every action.
   six ministries, military upkeep, public services, debt service and trade contracts. The
   Laffer curve is modelled, not decorative. GDP growth is decomposed into drivers: debt,
   zero treasury, depleted reserves and shortages drag it down; resource output, stockpiles and
-  surpluses lift it.
+  surpluses lift it. The final rate normalises to a −50% to +50% swing in extreme crises.
+- **A citizen checkout** — rice, eggs, chicken, beef, fuel, electricity, cars, housing,
+  healthcare, education, transport and telecom are priced from industry supply, household
+  demand and consumer imports. Every good can be taxed or subsidised; the basket feeds GDP,
+  approval, depression, HDI and Gini.
+- **Currencies and inflation** — every nation has its own currency, inflation rate and exchange
+  regime. Inflation responds to deficits, shortages and cost pressure; exchange rates
+  mean-revert toward relative purchasing-power parity with trade and risk premiums.
 - **Eight resource industries** — water, energy, agriculture, livestock, oil, metal, rare earth
   and uranium. Tiered d6 upgrades (1 fail, 2–5 improvements, 6 advancement) and single d10 research
   stimulus (1 fail, 2–9 bonuses on ext & ref, 10 +20% & advancement). Production, stockpiles and
   known reserves are valued against GDP on the Industry screen.
-- **A composite world ranking** — treasure, debt, GDP, population, military power, approval,
-  HDI, Gini, violence and depression become a weighted 0–100 score with historical charts.
+- **A composite world ranking** — treasure, debt, GDP, GDP per capita, PPP per capita,
+  inflation, currency gap, population, military power, approval, HDI, Gini, violence and
+  depression become a weighted 0–100 score with sortable columns and historical series charts.
 - **Trade as foreign policy** — rival governments match surpluses to deficits through a world
   market pass; prices respond to aggregate deficits, the export volume that actually covers them
   and reserve scarcity. Manual contracts, 3-turn auto-deals, price posture and diplomatic
@@ -124,7 +132,7 @@ switching themes updates the entire interface and every visualisation immediatel
 graph TD
   UI[React pages and modals] --> Store[Zustand game store]
   Store --> Engine[Turn engine]
-  Engine --> Economy[Budget, resources, prices]
+  Engine --> Economy[Budget, commerce, resources, prices, currencies]
   Engine --> Events[Event deck and conditions]
   Engine --> AI[Rival AI and hostility]
   Worldgen[Seeded world generator] --> Store
@@ -177,9 +185,37 @@ Depletion = min(level_extraction, level_refinement) × capacity
 Reserves' = max(0, reserves − depletion)
 ```
 
-The full equations — including the budget, Laffer curve, market maker, military power, trade
-relations and composite score — are rendered inside the game on the **Methodology** page with
-KaTeX.
+The full equations — including the budget, Laffer curve, market maker, consumer basket,
+inflation, currency parity, military power, trade relations and composite score — are rendered
+inside the game on the **Methodology** page with KaTeX.
+
+### Commerce flow
+
+```
+Input available = production + resource imports − resource exports
+Domestic supply = input × resource share ÷ input per unit × service capacity
+Demand = population × demand per million
+Effective demand = demand × clamp(1 − 0.55 × elasticity × rate, 0.55, 1.35)
+Imports = effective demand × clamp((1 − domestic coverage) × 0.85, 0, category cap)
+Coverage = (domestic supply + imports) ÷ effective demand
+Price pressure = clamp((effective demand ÷ supply)^elasticity × (1 + 0.2 × import share), 0.4, 3)
+Consumer price = base price × pressure × (1 + tax or subsidy rate)
+Fiscal balance = levies − subsidies
+Consumer trade = export credit − import bill
+```
+
+### Inflation and currency parity
+
+```
+Inflation target = base + monetised deficit + shortage and basket pressure
+                   + demand-pull growth + FX pass-through − credibility
+                   − stabilisation above 8% inflation
+Fair rate' = fair rate × (1 + clamp(0.6 × (inflation − world inflation), −4%, +4%))
+Market rate' = lerp(market rate, fair rate × (1 + risk + trade), regime speed)
+```
+
+Imports and exports affect the current account and the exchange rate, not the state budget:
+households pay for consumer goods, while the treasury only collects levies or pays subsidies.
 
 ### Saving
 

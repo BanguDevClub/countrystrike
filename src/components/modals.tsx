@@ -1055,7 +1055,9 @@ function CountryModal({ countryId }: { countryId: string }) {
         <StatTile
           label="GDP"
           value={formatMoney(country.stats.gdp)}
-          hint={`${formatUsd(gdpPerCapita(country))} per capita`}
+          hint={`${formatUsd(gdpPerCapita(country))} per capita · ${formatUsd(
+            country.stats.pppPerCapita || gdpPerCapita(country),
+          )} PPP`}
           icon="ChartLine"
           compact
         />
@@ -1165,6 +1167,16 @@ function CountryModal({ countryId }: { countryId: string }) {
                   tone="warning"
                   thin
                   valueLabel={formatPercent(country.stats.depression)}
+                />
+              </div>
+              <div className="metric-line">
+                <span>Inflation</span>
+                <ProgressBar
+                  value={Math.max(0, Math.min(30, country.stats.inflation))}
+                  max={30}
+                  tone={country.stats.inflation > 12 ? 'negative' : 'warning'}
+                  thin
+                  valueLabel={`${formatDecimal(country.stats.inflation, 1)}%`}
                 />
               </div>
             </div>

@@ -6,12 +6,14 @@ import {
   CAPITAL_ROOTS,
   CAPITAL_SUFFIXES,
   CELL_COLORS,
+  COMMERCE_GOOD_IDS,
   CONTINENT_LAYOUTS,
   CONTINENT_NAMES,
   CONTINENT_TINTS,
   COUNTRY_ROOTS,
   COUNTRY_SUFFIXES,
   CULTURES,
+  CURRENCY_DENOMINATIONS,
   FIRST_NAMES,
   GAME_NAME,
   GOVERNMENTS,
@@ -30,9 +32,11 @@ import {
 import type { ContinentSlot } from './constants'
 import type {
   AutoDealMode,
+  CommerceGoodId,
   Continent,
   Country,
   CountryStats,
+  CurrencyState,
   GameSettings,
   GameState,
   LogEntry,
@@ -46,7 +50,14 @@ import type {
 } from './types'
 import { RNG, clamp, randomSeed, roundTo } from './rng'
 import { shadeHex } from './color'
-import { combinedModifiers, computeMarket, resourceFlows, resourceModifier } from './selectors'
+import {
+  combinedModifiers,
+  computeCommerce,
+  computeMarket,
+  gdpPerCapita,
+  resourceFlows,
+  resourceModifier,
+} from './selectors'
 
 /* ── Name helpers ──────────────────────────────────────────────────────── */
 
@@ -270,6 +281,59 @@ function makeTaxes(rng: RNG): TaxRates {
   }
 }
 
+function makeCurrencyCode(rng: RNG, countryCode: string, used: Set<string>): string {
+  const base = countryCode
+    .replace(/[^A-Z]/g, '')
+    .slice(0, 2)
+    .padEnd(2, 'X')
+  const suffixes = 'DFGHJKLMNPRSTVWYZ'.split('')
+  for (let attempt = 0; attempt < 200; attempt += 1) {
+    const code = `${base}${rng.pick(suffixes)}`
+    if (!used.has(code)) {
+      used.add(code)
+      return code
+    }
+  }
+  let index = 1
+  while (used.has(`X${index}`)) index += 1
+  const fallback = `X${index}`
+  used.add(fallback)
+  return fallback
+}
+
+function makeCurrency(
+  rng: RNG,
+  countryName: string,
+  countryCode: string,
+  gdpPerCapita: number,
+  usedCodes: Set<string>,
+): CurrencyState {
+  const denomination = rng.pick(CURRENCY_DENOMINATIONS)
+  const roll = rng.next()
+  const regime = roll < 0.55 ? 'floating' : roll < 0.85 ? 'managed' : 'pegged'
+  const relative = 24_000 / Math.max(4_000, gdpPerCapita)
+  const rate = roundTo(clamp(relative * rng.float(0.45, 2.2), 0.15, 80), 3)
+  return {
+    code: makeCurrencyCode(rng, countryCode, usedCodes),
+    name: `${countryName} ${denomination.name.toLowerCase()}`,
+    symbol: denomination.symbol,
+    rate,
+    fairRate: rate,
+    changePct: 0,
+    regime,
+  }
+}
+
+function initCommercePolicy(): Record<CommerceGoodId, number> {
+  return COMMERCE_GOOD_IDS.reduce(
+    (result, id) => {
+      result[id] = 0
+      return result
+    },
+    {} as Record<CommerceGoodId, number>,
+  )
+}
+
 function makeMilitary(rng: RNG, government: string, culture: string): Record<UnitId, number> {
   const bias = governmentMilitaryBias(government) * (culture === 'martial' ? 1.3 : 1)
   const military = emptyMilitary()
@@ -392,6 +456,7 @@ function generateCountry(
   continentId: string,
   usedNames: Set<string>,
   usedCodes: Set<string>,
+  usedCurrencyCodes: Set<string>,
   config: { culture: string; biome: string; weather: string; traits: string[] },
   mapData: { seed: Point; polygon: Point[]; centroid: Point; color: string },
   index: number,
@@ -418,13 +483,16 @@ function generateCountry(
     depression: 9,
     security: 55,
     corruption: 40,
+    inflation: roundTo(rng.float(1.5, 7.5), 1),
+    pppPerCapita: gdpPerCapita,
   }
 
+  const countryCode = makeCode(name, usedCodes)
   const country: Country = {
     id: `country-${index + 1}`,
     name,
     capital: makeCapital(rng),
-    code: makeCode(name, usedCodes),
+    code: countryCode,
     continentId,
     culture: traits.culture,
     biome: traits.biome,
@@ -448,6 +516,8 @@ function generateCountry(
     relations: 0,
     externalApproval: 0,
     autoDeal: initAutoDeals(),
+    commercePolicy: initCommercePolicy(),
+    currency: makeCurrency(rng, name, countryCode, gdpPerCapita, usedCurrencyCodes),
   }
 
   const modifiers = combinedModifiers(country)
@@ -688,6 +758,7 @@ export function generateWorld(settingsInput: GameSettings, seed = randomSeed()):
   const continentCount = clamp(Math.round(settings.continents), 1, 5)
   const usedNames = new Set<string>()
   const usedCodes = new Set<string>()
+  const usedCurrencyCodes = new Set<string>()
 
   // Generate traits once so the map colour and the country dossier agree.
   const configs = Array.from({ length: countryCount }, () => chooseTraits(rng))
@@ -702,6 +773,7 @@ export function generateWorld(settingsInput: GameSettings, seed = randomSeed()):
         cell.continentId,
         usedNames,
         usedCodes,
+        usedCurrencyCodes,
         configs[index]!,
         cell,
         index,
@@ -735,6 +807,14 @@ export function generateWorld(settingsInput: GameSettings, seed = randomSeed()):
       changePct: 0,
       trend: 'stable',
     }
+  }
+
+  for (const country of countries) {
+    const commerce = computeCommerce(country, resourceFlows(country, [], prices))
+    country.stats.pppPerCapita = roundTo(
+      gdpPerCapita(country) / Math.max(0.2, commerce.basketIndex / 100),
+      0,
+    )
   }
 
   const logs: LogEntry[] = [

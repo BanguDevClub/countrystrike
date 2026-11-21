@@ -1,6 +1,7 @@
 import { useMemo } from 'react'
 import katex from 'katex'
 import {
+  COMMERCE_GOODS,
   COMPOSITE_METRICS,
   DIFFICULTIES,
   GOVERNMENTS,
@@ -102,6 +103,8 @@ export function Methodology() {
           ['#world', 'World generation'],
           ['#resources', 'Resource flow'],
           ['#prices', 'Market prices'],
+          ['#commerce', 'Commerce & basket'],
+          ['#currency', 'Inflation & FX'],
           ['#gdp', 'GDP growth'],
           ['#fiscal', 'Taxes & Laffer'],
           ['#budget', 'Budget'],
@@ -405,6 +408,175 @@ export function Methodology() {
       </MethodSection>
 
       <MethodSection
+        id="commerce"
+        title="Commerce & the household basket"
+        subtitle="Consumer goods are downstream of industry. Domestic input left after trade sets supply; household need sets demand and price pressure."
+      >
+        <div className="method-grid">
+          <div>
+            <p>
+              Every country runs a household checkout for twelve goods and services. Domestic supply
+              starts from the input resource that remains after exports and imports:{' '}
+              <strong>production + imports − exports</strong>, multiplied by the good's resource
+              share and divided by its input requirement. Service industries additionally scale with
+              HDI and the Industry/Finance budgets.
+            </p>
+            <p>
+              Missing household goods are bought on the world consumer market, up to an import cap
+              that depends on the class (80% food, 80% energy, 60% manufactured, 40% services).
+              Domestic surpluses are exported. Households pay for these goods, so the consumer-trade
+              bill weighs on the current account and the currency rather than the state budget.
+              Imported supply carries a price premium, but only the remaining gap counts as unmet
+              demand.
+            </p>
+            <p>
+              Demand is population × demand per million citizens. Total coverage is supply ÷ demand.
+              Taxes and subsidies move the consumer price and the quantity actually bought, and the
+              fiscal balance is the levy on the sold quantity.
+            </p>
+            <p>
+              The basket index is a base-weighted consumer price index. Commerce contributes to
+              growth through availability and affordability, subtracts through cost of living and
+              inflation, and moves approval, depression, HDI and Gini through the same snapshot.
+            </p>
+          </div>
+          <div className="method-formula-col">
+            <Formula
+              tex={String.raw`\text{input}_c=\max(0,\ \text{production}_r+\text{imports}_r-\text{exports}_r)`}
+            />
+            <Formula
+              tex={String.raw`S^{dom}_c=\frac{\text{input}_c\cdot\text{share}_c}{\text{inputPerUnit}_c}\cdot F_{\text{service}}`}
+            />
+            <Formula tex={String.raw`D_c=\text{population}\cdot\text{demandPerMillion}_c`} />
+            <Formula
+              tex={String.raw`D^{eff}_c=D_c\operatorname{clamp}\left(1-0.55e_c\tau_c,0.55,1.35\right)`}
+            />
+            <Formula
+              tex={String.raw`M_c=D^{eff}_c\operatorname{clamp}\left((1-\text{domesticCoverage}_c)0.85,0,\text{cap}_c\right)`}
+            />
+            <Formula tex={String.raw`X_c=\max(0,S^{dom}_c-D^{eff}_c)`} />
+            <Formula tex={String.raw`S_c=S^{dom}_c+M_c,\quad \text{coverage}_c=S_c/D^{eff}_c`} />
+            <Formula
+              tex={String.raw`\text{pressure}_c=\operatorname{clamp}\left(\left(\frac{D^{eff}_c}{S_c}\right)^{e_c}(1+0.2M_c/D^{eff}_c),0.4,3\right)`}
+            />
+            <Formula tex={String.raw`P_c=P^{base}_c\cdot\text{pressure}_c`} />
+            <Formula tex={String.raw`\tau_c=\text{tax or subsidy rate}`} />
+            <Formula tex={String.raw`P^{consumer}_c=P_c(1+\tau_c)`} />
+            <Formula tex={String.raw`\text{fiscal}_c=P_c\cdot\min(S_c,\ D^{eff}_c)\cdot\tau_c`} />
+            <Formula tex={String.raw`\text{fiscal net}=\sum_c\text{fiscal}_c`} />
+            <Formula tex={String.raw`\text{consumer trade}=\sum_c 0.95P_cX_c-\sum_c P_cM_c`} />
+            <Formula
+              tex={String.raw`\text{CPI}=100\cdot\frac{\sum_c w_c(P^{consumer}_c/P^{base}_c)}{\sum_c w_c},\quad w_c=D^{pm}_cP^{base}_c`}
+            />
+          </div>
+        </div>
+        <div className="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Good</th>
+                <th>Class</th>
+                <th>Input</th>
+                <th className="num">Base price</th>
+                <th className="num">Demand / 1M</th>
+                <th>Essential</th>
+              </tr>
+            </thead>
+            <tbody>
+              {COMMERCE_GOODS.map((good) => (
+                <tr key={good.id}>
+                  <td>
+                    <span className="resource-inline">
+                      <Icon name={good.icon} size={14} /> {good.name}
+                    </span>
+                  </td>
+                  <td>
+                    <Badge tone={good.category === 'services' ? 'accent' : 'muted'}>
+                      {good.category}
+                    </Badge>
+                  </td>
+                  <td>{good.resource}</td>
+                  <td className="num">{formatMoney(good.basePrice)}</td>
+                  <td className="num">
+                    {formatQuantity(good.demandPerMillion)} {good.unit}
+                  </td>
+                  <td>{good.essential ? 'Yes' : 'No'}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        <p>
+          Policy rates run from −60% (subsidy) to +120% (tax). Applying a change costs one action.
+          Levies appear as <strong>Commerce levies</strong> revenue and subsidies as{' '}
+          <strong>Consumer subsidies</strong> expense in the budget. Commerce does not consume a
+          second slice of the resource ledger: it prices the share of input allocated to households
+          so the industry and commerce screens reconcile.
+        </p>
+      </MethodSection>
+
+      <MethodSection
+        id="currency"
+        title="Inflation & currency parity"
+        subtitle="Inflation is fiscal and real. Exchange rates mean-revert toward relative purchasing-power parity, with trade and risk premiums."
+      >
+        <div className="method-grid">
+          <div>
+            <p>
+              Inflation is a country statistic in percent per turn. Its target rises with monetised
+              fiscal deficits, commerce shortages, basket pressure, demand-pull growth and last
+              turn's depreciation. Approval, security and the Finance budget build credibility and
+              pull it down. The actual rate adapts toward the target each turn.
+            </p>
+            <p>
+              Each country has its own currency quoted as local units per credit. A purchasing-power
+              parity anchor drifts with the inflation differential against the world average: a
+              country inflating faster sees its fair rate rise (depreciate). The market rate
+              converges toward fair value plus a risk premium for debt, low approval and shortages,
+              minus an appreciation push from trade surpluses.
+            </p>
+            <p>
+              Floating regimes converge fastest and are capped at 12% per turn; managed rates at 6%;
+              pegged rates at 1%. The Commerce screen shows every country's rate, last move,
+              inflation, fair rate and PPP gap.
+            </p>
+          </div>
+          <div className="method-formula-col">
+            <Formula
+              tex={String.raw`\pi^*=2.5+45m\max\left(0,\frac{-\text{net}}{\text{GDP}}\right)+14\,\text{shortage}+0.02\max(0,\text{CPI}-100)+20\max(0,g)+0.12\max(0,\Delta FX)-1.1C-0.3\max(0,\pi-8)`}
+            />
+            <Formula
+              tex={String.raw`\pi_{t+1}=\operatorname{clamp}\left(\operatorname{lerp}(\pi_t,\pi^*,0.22)+\varepsilon,-5,80\right)`}
+            />
+            <Formula tex={String.raw`\pi_w=\frac{1}{N}\sum_i \pi_i`} />
+            <Formula
+              tex={String.raw`F_{t+1}=F_t\left(1+\operatorname{clamp}\left(0.6\frac{\pi_i-\pi_w}{100},-0.04,0.04\right)\right)`}
+            />
+            <Formula
+              tex={String.raw`\text{target}=F_{t+1}\left(1+\text{risk}+\text{trade}\right)`}
+            />
+            <Formula
+              tex={String.raw`\text{risk}=\max\left(0,\frac{\text{debt/GDP}-60}{100}\right)0.02+\max\left(0,\frac{45-\text{approval}}{100}\right)0.03+0.015\,\text{shortage}`}
+            />
+            <Formula
+              tex={String.raw`\text{trade}=-0.25\operatorname{clamp}\left(\frac{X-M}{\text{GDP}},-0.08,0.08\right)`}
+            />
+            <Formula
+              tex={String.raw`FX_{t+1}=\operatorname{lerp}(FX_t,\text{target},s)(1+\varepsilon)`}
+            />
+            <Formula tex={String.raw`\text{PPP gap}=\left(\frac{FX}{F}-1\right)100\%`} />
+            <Formula tex={String.raw`1\,\text{unit of }A=\frac{FX_B}{FX_A}\,\text{units of }B`} />
+          </div>
+        </div>
+        <p>
+          <strong>m</strong> = 1.8 when the treasury is at zero (monetised deficit) and 0.6
+          otherwise. <strong>C</strong> = 0.6 + approval/200 + security/200 + 0.06 × Finance budget
+          level. <strong>s</strong> = 0.24 floating, 0.12 managed, 0.03 pegged. A positive PPP gap
+          means the market rate is weaker than fair value.
+        </p>
+      </MethodSection>
+
+      <MethodSection
         id="gdp"
         title="GDP growth"
         subtitle="Resource wealth, deficits, debt and fiscal stress all feed the growth rate every turn."
@@ -415,7 +587,9 @@ export function Methodology() {
               GDP compounds each turn. The engine decomposes the rate into auditable drivers, shown
               live in the Budget screen. A resource-heavy economy grows faster; unmet deficits,
               exhausted reserves, zero treasury and runaway debt drag it down. Surplus production,
-              stockpiles and a funded treasury add positive pressure.
+              stockpiles and a funded treasury add positive pressure. The total is normalised to a
+              maximum swing of −50% to +50% per turn, so extreme crises can genuinely reprice an
+              economy.
             </p>
             <p>
               Debt becomes a growth penalty above 60% of GDP and accelerates above 120%. A treasury
@@ -431,7 +605,7 @@ export function Methodology() {
           </div>
           <div className="method-formula-col">
             <Formula
-              tex={String.raw`g_t=\operatorname{clamp}\left(0.006+\textstyle\sum_i g_i+\varepsilon,\ -0.06,\ 0.08\right)`}
+              tex={String.raw`g_t=\operatorname{clamp}\left(0.006+\textstyle\sum_i g_i+\varepsilon,\ -0.50,\ 0.50\right)`}
             />
             <Formula
               tex={String.raw`g_{\text{industry}}=\min(0.015,\ \text{industry levels}\times 0.00015)`}
@@ -450,6 +624,15 @@ export function Methodology() {
             />
             <Formula
               tex={String.raw`g_{\text{corp}}=\operatorname{clamp}\left((20-C)\times 0.0008,\ -0.01,\ 0.01\right)`}
+            />
+            <Formula
+              tex={String.raw`g_{\text{commerce}}=\operatorname{clamp}((\text{availability}-0.82)0.02+(\text{affordability}-1.2)0.004,\ -0.012,\ 0.012)`}
+            />
+            <Formula
+              tex={String.raw`g_{\text{cost}}=-\operatorname{clamp}\left(\frac{\text{CPI}-100}{100},-0.15,0.35\right)0.04`}
+            />
+            <Formula
+              tex={String.raw`g_{\text{inflation}}=-\operatorname{clamp}\left(\frac{\pi-4}{100},0,0.4\right)0.05`}
             />
             <Formula tex={String.raw`\text{GDP}_{t+1}=\max(100,\ \text{GDP}_t(1+g_t))`} />
           </div>
@@ -516,10 +699,10 @@ export function Methodology() {
       >
         <div className="formula-stack">
           <Formula
-            tex={String.raw`\text{Revenue} = \text{Corporate} + \text{Income} + \text{Tariff} + \text{Royalty} + \text{Export revenue}`}
+            tex={String.raw`\text{Revenue} = \text{Corporate} + \text{Income} + \text{Tariff} + \text{Royalty} + \text{Commerce levies} + \text{Export revenue}`}
           />
           <Formula
-            tex={String.raw`\text{Expenses} = \sum_{m} \text{GDP}\cdot c_m + 0.08\,\text{GDP} + \text{Upkeep} + \text{Debt}\cdot\frac{r}{100} + \text{Import cost}`}
+            tex={String.raw`\text{Expenses} = \sum_{m} \text{GDP}\cdot c_m + 0.08\,\text{GDP} + \text{Consumer subsidies} + \text{Upkeep} + \text{Debt}\cdot\frac{r}{100} + \text{Import cost}`}
           />
           <Formula tex={String.raw`c_m = 0.004\ (low),\ 0.008\ (normal),\ 0.016\ (high)`} />
           <Formula tex={String.raw`\text{Net} = \text{Revenue} - \text{Expenses}`} />
@@ -710,9 +893,14 @@ export function Methodology() {
               tex={String.raw`S_i = \sum_k w_k \cdot \tilde{x}_{i,k},\quad S_i \in [0,100]`}
             />
             <p>
-              Treasury, GDP and population are log-scaled before normalization. Debt, Gini, violence
-              and depression are inverted. This prevents giant economies from flattening every other
-              dimension.
+              Treasury, GDP, GDP per capita, PPP per capita and population are log-scaled before
+              normalization. Debt, inflation, currency gap, Gini, violence and depression are
+              inverted. This prevents giant economies from flattening every other dimension.
+            </p>
+            <p>
+              PPP per capita is GDP per capita divided by the consumer basket index, so it reflects
+              what households can actually buy. The currency gap is the absolute difference between
+              the market exchange rate and its purchasing-power-parity fair value.
             </p>
           </div>
           <div className="method-formula-col">
@@ -722,6 +910,16 @@ export function Methodology() {
             />
             <Formula
               tex={String.raw`\text{GDP}' = \operatorname{normalize}(\log_{10}\text{GDP})`}
+            />
+            <Formula
+              tex={String.raw`\text{GDP}_{pc}' = \operatorname{normalize}\left(\log_{10}\frac{\text{GDP}}{\text{population}}\right)`}
+            />
+            <Formula
+              tex={String.raw`\text{PPP}_{pc}' = \operatorname{normalize}\left(\log_{10}\frac{\text{GDP}/N}{\text{CPI}/100}\right)`}
+            />
+            <Formula tex={String.raw`\text{inflation}' = 1-\operatorname{normalize}(\pi)`} />
+            <Formula
+              tex={String.raw`\text{currency}' = 1-\operatorname{normalize}\left(\left|\frac{FX}{F}-1\right|100\right)`}
             />
             <Formula
               tex={String.raw`\text{Population}' = \operatorname{normalize}(\log_{10}\text{population})`}

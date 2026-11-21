@@ -664,7 +664,7 @@
 }
 
 .ranking-table {
-  min-width: 1080px;
+  min-width: 1380px;
 }
 
 .ranking-row {
@@ -1354,4 +1354,89 @@
   .goal-method-grid {
     grid-template-columns: 1fr;
   }
+}
+
+.macro-chart-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.macro-chart {
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface-2);
+  min-width: 0;
+}
+
+.macro-chart-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.macro-chart-head span {
+  color: var(--muted);
+  font-size: 0.68rem;
+  font-weight: 650;
+}
+
+.macro-chart-head strong {
+  font-family: var(--font-display);
+  font-size: 0.92rem;
+  font-variant-numeric: tabular-nums;
+}
+
+@media (max-width: 820px) {
+  .macro-chart-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.ranking-table .sticky-col {
+  position: sticky;
+  z-index: 2;
+  background: var(--surface-3);
+  box-shadow: 1px 0 0 var(--border);
+}
+
+.ranking-table .sticky-col.rank-col {
+  left: 0;
+  z-index: 3;
+}
+
+.ranking-table .sticky-col.ranking-country-col {
+  left: 49px;
+}
+
+.ranking-table tbody .sticky-col {
+  background: var(--surface-2);
+  z-index: 1;
+}
+
+.ranking-table tbody .sticky-col.rank-col {
+  z-index: 2;
+}
+
+.ranking-row.is-player-row .sticky-col {
+  background: color-mix(in srgb, var(--accent-soft) 45%, var(--surface-2));
+}
+
+.ranking-row:hover .sticky-col {
+  background: color-mix(in srgb, var(--surface-3) 80%, var(--surface-2));
+}
+
+.ranking-row.is-player-row:hover .sticky-col {
+  background: color-mix(in srgb, var(--accent-soft) 75%, var(--surface-2));
+}
+
+.ranking-table .ranking-country-col {
+  width: 220px;
+  min-width: 220px;
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }

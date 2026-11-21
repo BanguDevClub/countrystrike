@@ -23,6 +23,9 @@ const Governance = lazy(() =>
 const Industry = lazy(() =>
   import('./pages/Industry').then((module) => ({ default: module.Industry })),
 )
+const Commerce = lazy(() =>
+  import('./pages/Commerce').then((module) => ({ default: module.Commerce })),
+)
 const Military = lazy(() =>
   import('./pages/Military').then((module) => ({ default: module.Military })),
 )
@@ -83,6 +86,7 @@ function GameView() {
       {page === 'budget' && <Budget />}
       {page === 'governance' && <Governance />}
       {page === 'industry' && <Industry />}
+      {page === 'commerce' && <Commerce />}
       {page === 'military' && <Military />}
       {page === 'trade' && <Trade />}
       {page === 'ranking' && <Ranking />}

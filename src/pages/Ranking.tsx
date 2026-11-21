@@ -13,7 +13,13 @@ import { GOVERNMENT_BY_ID } from '../game/constants'
 import type { CompositeMetricKey, Country, CountrySnapshot, GovernmentId } from '../game/types'
 import { useGame, selectPlayer } from '../state/gameStore'
 import type { CompositeResult } from '../game/selectors'
-import { computeComposites, debtToGdp, gdpPerCapita, militaryPower } from '../game/selectors'
+import {
+  computeComposites,
+  currencyGap,
+  debtToGdp,
+  gdpPerCapita,
+  militaryPower,
+} from '../game/selectors'
 import { formatDecimal, formatMoney, formatNumber, formatPercent, formatUsd } from '../game/format'
 import { Badge, EmptyState, PageHeader, ProgressBar, SectionCard, StatTile } from '../components/ui'
 import { Icon } from '../components/Icon'
@@ -24,6 +30,10 @@ type RankingMetric =
   | 'treasury'
   | 'debt'
   | 'gdp'
+  | 'gdpPerCapita'
+  | 'pppPerCapita'
+  | 'inflation'
+  | 'currency'
   | 'population'
   | 'militaryPower'
   | 'approval'
@@ -37,6 +47,10 @@ const METRIC_LABELS: Record<RankingMetric, string> = {
   treasury: 'Treasure',
   debt: 'Debt',
   gdp: 'GDP',
+  gdpPerCapita: 'GDP per capita',
+  pppPerCapita: 'PPP per capita',
+  inflation: 'Inflation',
+  currency: 'Currency gap',
   population: 'Population',
   militaryPower: 'Military power',
   approval: 'Approval',
@@ -46,7 +60,14 @@ const METRIC_LABELS: Record<RankingMetric, string> = {
   depression: 'Depression',
 }
 
-const LOW_IS_BETTER: RankingMetric[] = ['debt', 'gini', 'violence', 'depression']
+const LOW_IS_BETTER: RankingMetric[] = [
+  'debt',
+  'inflation',
+  'currency',
+  'gini',
+  'violence',
+  'depression',
+]
 
 interface RankingRow {
   country: Country
@@ -65,6 +86,14 @@ function valueForRow(row: RankingRow, metric: RankingMetric): number {
       return row.country.stats.debt
     case 'gdp':
       return row.country.stats.gdp
+    case 'gdpPerCapita':
+      return gdpPerCapita(row.country)
+    case 'pppPerCapita':
+      return row.country.stats.pppPerCapita || gdpPerCapita(row.country)
+    case 'inflation':
+      return row.country.stats.inflation
+    case 'currency':
+      return currencyGap(row.country)
     case 'population':
       return row.country.stats.population
     case 'militaryPower':
@@ -92,6 +121,14 @@ function valueForSnapshot(snapshot: CountrySnapshot, metric: RankingMetric): num
       return snapshot.debt
     case 'gdp':
       return snapshot.gdp
+    case 'gdpPerCapita':
+      return snapshot.gdpPerCapita
+    case 'pppPerCapita':
+      return snapshot.pppPerCapita
+    case 'inflation':
+      return snapshot.inflation
+    case 'currency':
+      return snapshot.currencyGap
     case 'population':
       return snapshot.population
     case 'militaryPower':
@@ -115,6 +152,12 @@ function formatMetric(metric: RankingMetric, value: number): string {
     case 'debt':
     case 'gdp':
       return formatMoney(value)
+    case 'gdpPerCapita':
+    case 'pppPerCapita':
+      return formatUsd(value)
+    case 'inflation':
+    case 'currency':
+      return `${formatDecimal(value, 1)}%`
     case 'population':
       return `${formatNumber(value, 1)}M`
     case 'militaryPower':
@@ -133,6 +176,7 @@ function formatMetric(metric: RankingMetric, value: number): string {
 }
 
 const CHART_COLORS = ['var(--c1)', 'var(--c2)', 'var(--c3)', 'var(--c4)', 'var(--c5)', 'var(--c6)']
+const MACRO_METRICS: RankingMetric[] = ['inflation', 'currency', 'gdpPerCapita', 'pppPerCapita']
 
 export function Ranking() {
   const game = useGame((state) => state.game)
@@ -205,11 +249,28 @@ export function Ranking() {
       const entry: Record<string, string | number | null> = { turn: point.turn }
       for (const country of chartSeries) {
         const snapshot = point.countries[country.id]
-        entry[country.name] = snapshot ? valueForSnapshot(snapshot, historyMetric) : null
+        const value = snapshot ? valueForSnapshot(snapshot, historyMetric) : null
+        entry[country.name] = Number.isFinite(value) ? value : null
       }
       return entry
     })
   }, [visibleHistory, chartSeries, historyMetric])
+
+  const macroData = useMemo(() => {
+    if (!player) return []
+    return visibleHistory.map((point) => {
+      const snapshot = point.countries[player.id]
+      return {
+        turn: point.turn,
+        inflation: snapshot?.inflation ?? null,
+        currency: snapshot?.currencyGap ?? null,
+        gdpPerCapita: snapshot?.gdpPerCapita ?? null,
+        pppPerCapita: snapshot?.pppPerCapita ?? null,
+      }
+    })
+  }, [visibleHistory, player])
+
+  const latestMacroSnapshot = visibleHistory.at(-1)?.countries[player?.id ?? ''] ?? null
 
   if (!game || !player) return null
 
@@ -410,6 +471,86 @@ export function Ranking() {
       </SectionCard>
 
       <SectionCard
+        className="chart-card ranking-history-card"
+        title="Macro history"
+        subtitle="Your inflation, currency misalignment, GDP per capita and PPP per capita across turns."
+      >
+        {macroData.length === 0 ? (
+          <EmptyState
+            icon="ChartLine"
+            title="No macro history to chart"
+            body="End a turn to start recording inflation, currency parity and living standards."
+          />
+        ) : (
+          <div className="macro-chart-grid">
+            {MACRO_METRICS.map((metric, index) => (
+              <div key={metric} className="macro-chart">
+                <div className="macro-chart-head">
+                  <span>{METRIC_LABELS[metric]}</span>
+                  <strong>
+                    {latestMacroSnapshot &&
+                    Number.isFinite(valueForSnapshot(latestMacroSnapshot, metric))
+                      ? formatMetric(metric, valueForSnapshot(latestMacroSnapshot, metric))
+                      : '—'}
+                  </strong>
+                </div>
+                <ResponsiveContainer width="100%" height={160}>
+                  <LineChart data={macroData} margin={{ top: 8, right: 8, bottom: 0, left: 0 }}>
+                    <CartesianGrid
+                      stroke="var(--chart-grid)"
+                      strokeDasharray="3 6"
+                      vertical={false}
+                    />
+                    <XAxis
+                      dataKey="turn"
+                      tick={{ fill: 'var(--muted)', fontSize: 10 }}
+                      axisLine={false}
+                      tickLine={false}
+                      tickFormatter={(value) => `T${value}`}
+                    />
+                    <YAxis
+                      tick={{ fill: 'var(--muted)', fontSize: 10 }}
+                      axisLine={false}
+                      tickLine={false}
+                      tickFormatter={(value) => formatMetric(metric, Number(value))}
+                      width={58}
+                    />
+                    <Tooltip
+                      contentStyle={{
+                        background: 'var(--surface)',
+                        border: '1px solid var(--border)',
+                        borderRadius: 12,
+                        color: 'var(--fg)',
+                        fontSize: 12,
+                      }}
+                      labelFormatter={(label) => `Turn ${label}`}
+                      formatter={(value) => [
+                        formatMetric(metric, Number(value)),
+                        METRIC_LABELS[metric],
+                      ]}
+                    />
+                    <Line
+                      type="monotone"
+                      dataKey={metric}
+                      stroke={CHART_COLORS[index % CHART_COLORS.length]}
+                      strokeWidth={2}
+                      dot={macroData.length <= 3}
+                      connectNulls
+                      name={METRIC_LABELS[metric]}
+                    />
+                  </LineChart>
+                </ResponsiveContainer>
+              </div>
+            ))}
+          </div>
+        )}
+        <div className="chart-footnote">
+          <Icon name="Info" size={13} /> PPP per capita is GDP per capita divided by the consumer
+          basket index. Currency gap is the absolute PPP misalignment of the market rate.
+        </div>
+      </SectionCard>
+
+      <SectionCard
         className="table-card ranking-table-card"
         title="The world table"
         subtitle={`${filteredRows.length} of ${rows.length} states match the filters. Click any row for its dossier.`}
@@ -458,8 +599,8 @@ export function Ranking() {
           <table className="ranking-table">
             <thead>
               <tr>
-                <th className="rank-col">#</th>
-                <th>Country</th>
+                <th className="rank-col sticky-col">#</th>
+                <th className="sticky-col ranking-country-col">Country</th>
                 <SortHeader metric="composite" numeric>
                   Composite
                 </SortHeader>
@@ -472,6 +613,12 @@ export function Ranking() {
                 <SortHeader metric="gdp" numeric>
                   GDP
                 </SortHeader>
+                <SortHeader metric="gdpPerCapita" numeric>
+                  GDP/capita
+                </SortHeader>
+                <SortHeader metric="pppPerCapita" numeric>
+                  PPP/capita
+                </SortHeader>
                 <SortHeader metric="population" numeric>
                   Population
                 </SortHeader>
@@ -480,6 +627,12 @@ export function Ranking() {
                 </SortHeader>
                 <SortHeader metric="approval" numeric>
                   Approval
+                </SortHeader>
+                <SortHeader metric="inflation" numeric>
+                  Inflation
+                </SortHeader>
+                <SortHeader metric="currency" numeric>
+                  Currency gap
                 </SortHeader>
                 <SortHeader metric="hdi" numeric>
                   HDI
@@ -498,7 +651,7 @@ export function Ranking() {
             <tbody>
               {sortedRows.length === 0 ? (
                 <tr>
-                  <td colSpan={13}>
+                  <td colSpan={17}>
                     <EmptyState
                       icon="Search"
                       title="No countries match"
@@ -510,6 +663,7 @@ export function Ranking() {
                 sortedRows.map((row) => {
                   const country = row.country
                   const rank = compositeRanks.get(country.id) ?? 0
+                  const gap = currencyGap(country)
                   return (
                     <tr
                       key={country.id}
@@ -524,10 +678,10 @@ export function Ranking() {
                       role="button"
                       tabIndex={0}
                     >
-                      <td className="rank-col">
+                      <td className="rank-col sticky-col">
                         <span className={`rank-number rank-${Math.min(3, rank)}`}>{rank}</span>
                       </td>
-                      <td>
+                      <td className="sticky-col ranking-country-col">
                         <span className="country-cell-name">
                           <Flag seed={country.flagSeed} code={country.code} size="sm" />
                           <span>
@@ -535,10 +689,7 @@ export function Ranking() {
                               {country.name}
                               {country.isPlayer ? ' · You' : ''}
                             </strong>
-                            <small>
-                              {GOVERNMENT_BY_ID[country.government]?.name} ·{' '}
-                              {formatUsd(gdpPerCapita(country))} / capita
-                            </small>
+                            <small>{GOVERNMENT_BY_ID[country.government]?.name}</small>
                           </span>
                         </span>
                       </td>
@@ -558,9 +709,35 @@ export function Ranking() {
                         <small className="cell-sub">{formatPercent(debtToGdp(country))} GDP</small>
                       </td>
                       <td className="num">{formatMoney(country.stats.gdp)}</td>
+                      <td className="num">{formatUsd(gdpPerCapita(country))}</td>
+                      <td className="num">
+                        {formatUsd(country.stats.pppPerCapita || gdpPerCapita(country))}
+                      </td>
                       <td className="num">{formatNumber(country.stats.population, 1)}M</td>
                       <td className="num">{formatDecimal(row.power, 0)}</td>
                       <td className="num">{formatPercent(country.stats.approval)}</td>
+                      <td className="num">
+                        <span
+                          className={
+                            country.stats.inflation > 12
+                              ? 'text-negative'
+                              : country.stats.inflation > 6
+                                ? 'text-warning'
+                                : 'text-positive'
+                          }
+                        >
+                          {formatDecimal(country.stats.inflation, 1)}%
+                        </span>
+                      </td>
+                      <td className="num">
+                        <span
+                          className={
+                            gap > 10 ? 'text-negative' : gap > 4 ? 'text-warning' : 'text-positive'
+                          }
+                        >
+                          {formatDecimal(gap, 1)}%
+                        </span>
+                      </td>
                       <td className="num">{formatDecimal(country.stats.hdi, 3)}</td>
                       <td className="num">{formatDecimal(country.stats.gini, 1)}</td>
                       <td className="num">{formatDecimal(country.stats.violence, 1)}</td>
@@ -597,7 +774,7 @@ export function Ranking() {
                   <span>{METRIC_LABELS[metric]}</span>
                   <ProgressBar
                     value={normalized * 100}
-                    tone={metric === 'debt' || metric === 'gini' ? 'warning' : 'accent'}
+                    tone={LOW_IS_BETTER.includes(metric) ? 'warning' : 'accent'}
                     thin
                     valueLabel={`${formatDecimal(normalized * 100, 0)}%`}
                   />

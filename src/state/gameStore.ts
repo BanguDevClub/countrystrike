@@ -2,6 +2,8 @@ import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 import {
   ACTIONS_PER_TURN,
+  COMMERCE_GOOD_IDS,
+  CURRENCY_DENOMINATIONS,
   DEAL_DURATION,
   FIRST_NAMES,
   GOVERNMENT_BY_ID,
@@ -16,6 +18,7 @@ import {
 } from '../game/constants'
 import type {
   AutoDealMode,
+  CommerceGoodId,
   Country,
   EventChoice,
   EventHistoryRecord,
@@ -79,6 +82,7 @@ interface GameStore {
   endTurn: () => void
 
   setTax: (key: keyof Country['taxes'], value: number) => void
+  setCommercePolicy: (id: CommerceGoodId, value: number) => void
   setDebtRate: (value: number) => void
   adjustDebt: (delta: number) => void
   setMinistryBudget: (id: MinistryId, budget: BudgetLevel) => void
@@ -150,6 +154,45 @@ function migrateTradeDeals(game: GameState): void {
 function normalizeGameState(game: GameState): GameState {
   game.settings = normalizeSettings(game.settings)
   migrateTradeDeals(game)
+  for (const country of game.countries) {
+    const perCapita =
+      country.stats.population > 0 ? country.stats.gdp / country.stats.population : 10_000
+    if (typeof country.stats.inflation !== 'number') {
+      country.stats.inflation = 4
+    }
+    if (typeof country.stats.pppPerCapita !== 'number') {
+      country.stats.pppPerCapita = roundTo(perCapita, 0)
+    }
+    if (!country.commercePolicy) {
+      country.commercePolicy = COMMERCE_GOOD_IDS.reduce(
+        (policy, id) => {
+          policy[id] = 0
+          return policy
+        },
+        {} as Record<CommerceGoodId, number>,
+      )
+    }
+    if (!country.currency) {
+      const rate = roundTo(clamp(24_000 / Math.max(4_000, perCapita), 0.15, 80), 3)
+      const seed =
+        [...(country.code || country.name)].reduce(
+          (total, character) => total + character.charCodeAt(0),
+          0,
+        ) + country.name.length
+      const denomination =
+        CURRENCY_DENOMINATIONS[seed % CURRENCY_DENOMINATIONS.length] ?? CURRENCY_DENOMINATIONS[0]!
+      const regime = seed % 7 === 0 ? 'pegged' : seed % 3 === 0 ? 'managed' : 'floating'
+      country.currency = {
+        code: country.code || 'CRD',
+        name: `${country.name} ${denomination.name.toLowerCase()}`,
+        symbol: denomination.symbol,
+        rate,
+        fairRate: rate,
+        changePct: 0,
+        regime,
+      }
+    }
+  }
   if (
     !game.market ||
     RESOURCE_IDS.some((resourceId) => !game.market[resourceId]) ||
@@ -333,6 +376,39 @@ export const useGame = create<GameStore>()(
         )
         set({ game })
         announce(set, `${titleCase(key)} tax set to ${nextValue}%.`, 'positive')
+      },
+
+      setCommercePolicy: (id, value) => {
+        const current = get().game
+        if (!current) return
+        const game = cloneGame(current)
+        const player = getPlayer(game)
+        const error = checkActionBudget(game, 1)
+        if (error) {
+          announce(set, error, 'negative')
+          return
+        }
+        const next = clamp(Math.round(value), -60, 120)
+        if ((player.commercePolicy[id] ?? 0) === next) return
+        player.commercePolicy[id] = next
+        game.actionsLeft -= 1
+        pushLog(
+          game,
+          'economy',
+          next >= 0
+            ? `${titleCase(id)} consumer tax set to ${next}%.`
+            : `${titleCase(id)} consumer subsidy set to ${Math.abs(next)}%.`,
+          player,
+          next > 0 ? 'negative' : 'positive',
+        )
+        set({ game })
+        announce(
+          set,
+          next >= 0
+            ? `${titleCase(id)} taxed at ${next}%.`
+            : `${titleCase(id)} subsidised at ${Math.abs(next)}%.`,
+          next >= 0 ? 'neutral' : 'positive',
+        )
       },
 
       setDebtRate: (value) => {

@@ -40,6 +40,7 @@ countrystrike/
 │   │   ├── Governance.tsx   # Tax policies, Laffer curves, cabinet portfolios
 │   │   ├── Budget.tsx       # Line-by-line revenue, expenses, debt limits
 │   │   ├── Industry.tsx     # 8 resources, prospecting, extraction, refinement, R&D
+│   │   ├── Commerce.tsx     # Household basket, prices, taxes/subsidies, FX parity
 │   │   ├── Military.tsx     # Order of battle, unit procurement, power shares
 │   │   ├── Trade.tsx        # Import/export contracts, bilateral agreements
 │   │   ├── Ranking.tsx      # Global comparative rankings
@@ -108,6 +109,8 @@ The game features over 600 handcrafted, thematic events located in `src/game/min
   - Reserve depletion below 20 turns of runway: up to `−0.005`/turn.
 - **Positive Pressure**: resource production share, positive resource balances, global stock cover, funded treasury (>20% of GDP) and a positive fiscal balance.
 - **Immediate Action Growth**: Industrial upgrades, breakthrough discoveries (+0.8%), and military recruitment stimulate the economy and immediately increase GDP base value.
+- **Normalisation**: `updateCountryStats` clamps the final turn growth to `[-0.50, +0.50]`. Individual drivers stay small; the debt burden driver is capped at `-0.25`.
+- **Commerce drivers**: consumer availability/affordability, cost of living and inflation add `commerce`, `costOfLiving` and `inflation` drivers.
 - **Income tax and depression**: the depression target adds `(income tax − 20) × 0.18`, so income tax below 20% eases depression and above 20% deepens it.
 - The Budget page renders every driver, and the Methodology page documents the equations.
 
@@ -120,7 +123,30 @@ The game features over 600 handcrafted, thematic events located in `src/game/min
 - **Royalty revenue**: `min(production value × royalty rate × 0.35, 15% of GDP)`. The cap prevents micro-economies with large deposits from generating runaway income.
 - **Trade screen**: shows the world market clearing table (supply, demand, deficit, exports, coverage, reserve cover, pressure), live player contracts and world contracts.
 
-### 5. Action Costs & Tax Levers
+### 5. Consumer Commerce, Inflation & Currencies
+
+- **Consumer goods** (`COMMERCE_GOODS` in `constants.ts`): rice, eggs, chicken, beef, fuel, electricity, cars, housing, healthcare, education, transport and telecom. Each has an input resource, resource share, input-per-unit, base price, household demand per million and price elasticity.
+- **Commerce snapshot** (`computeCommerce` in `selectors.ts`):
+  - Domestic supply = `(production + resource imports − resource exports) × share ÷ inputPerUnit × service capacity`.
+  - Demand = `population × demandPerMillion`.
+  - Consumer imports cover `85%` of the domestic gap up to a class cap (80% food/energy, 60% manufactured, 40% services); domestic surpluses are exported.
+  - Price pressure = `clamp((demand ÷ supply)^elasticity × (1 + 0.2 × import share), 0.4, 3)`.
+  - Consumer price = `basePrice × pressure × (1 + policy/100)`; policy runs from −60% subsidy to +120% tax.
+  - Fiscal balance = levies − subsidies. Consumer trade = export credit − import bill; households pay it, so it affects the current account and FX but not the state budget.
+  - The basket feeds GDP (`commerce`, `costOfLiving`, `inflation` drivers), approval, depression, HDI and Gini.
+- **Actions**: `setCommercePolicy` changes one good per action and logs the decision.
+- **Inflation**: `stats.inflation` is annualised percent per turn. `inflationTarget` combines monetised deficit, shortage share, basket pressure, demand-pull growth, FX pass-through, credibility and a stabilisation term above 8%.
+- **Currencies**: every country has a `CurrencyState` (`rate`, `fairRate`, `changePct`, `regime`). `updateCurrencies` drifts the PPP fair rate with the damped relative-inflation differential, then mean-reverts the market rate toward fair value with debt/approval/shortage risk premiums and a trade-flow push. Floating/managed/pegged regimes move at different speeds and caps.
+- **Save migration**: `normalizeGameState` fills `stats.inflation`, `stats.pppPerCapita`, `commercePolicy` and `currency` for older saves; `SAVE_VERSION` is 4.
+
+### 6. Composite Score
+
+- **Pillars**: Treasure (14), Debt (12), GDP (10), GDP per capita (9), PPP per capita (9), Inflation (5), Currency gap (4), Population (9), Military power (8), Approval (6), HDI (5), Gini (4), Violence (2), Depression (3). Weights total 100.
+- **Normalization**: min–max across living states; low-is-better pillars are inverted. Treasury, GDP, GDP per capita, PPP per capita and population are log-scaled.
+- **PPP per capita**: `(GDP / population) ÷ (consumer basket index / 100)`. It is stored in `CountryStats`, updated each turn from `computeCommerce`, and captured in every `CountrySnapshot` for history.
+- **Currency gap**: `|FX / fair FX − 1| × 100`, stored in snapshots for the ranking and macro history charts.
+
+### 7. Action Costs & Tax Levers
 
 - **No GDP scaling for purchases**: industry operations, cabinet actions, diplomacy, approval campaigns, mergers and war mobilisation use fixed base costs scaled by resource/ministry level.
 - **Industry cost**: `action base × (1 + 0.12 × extraction+refinement levels + 0.25 × advances) × category factor × industry budget factor`. Strategic resources use a 3.0× category factor.
@@ -129,7 +155,7 @@ The game features over 600 handcrafted, thematic events located in `src/game/min
 - **Corporate tax**: below 20% adds GDP growth, above 20% subtracts it (capped ±1%/turn).
 - **Income tax**: below 20% lowers the depression target, above 20% raises it.
 
-### 6. Turn Briefing & Event Modal Architecture
+### 8. Turn Briefing & Event Modal Architecture
 
 - **Once-Per-Turn Execution**: At the start of every turn, the briefing modal opens automatically.
 - **Turn Event Pagination**: When multiple events occur in a turn (e.g. sovereign bailout request + ministry event + national crisis), the modal provides full pagination:
