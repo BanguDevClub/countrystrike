@@ -566,6 +566,9 @@ export function Methodology() {
             />
             <Formula tex={String.raw`\text{PPP gap}=\left(\frac{FX}{F}-1\right)100\%`} />
             <Formula tex={String.raw`1\,\text{unit of }A=\frac{FX_B}{FX_A}\,\text{units of }B`} />
+            <Formula
+              tex={String.raw`\text{strength}=100-1.6\pi-1.2|\text{PPP gap}|-0.4\max(0,\Delta FX)`}
+            />
           </div>
         </div>
         <p>
@@ -828,8 +831,9 @@ export function Methodology() {
             </p>
             <p>
               Relations with a country determine the external-approval unlock. Tariffs reduce
-              relations each turn. At 100 relations, external approval campaigns become available.
-              At 100 approval, the country can be merged for two actions.
+              relations each turn. At 100 relations, external approval begins rising slowly on its
+              own; an approval campaign accelerates it. At 100 approval, the country can be merged
+              for two actions.
             </p>
             <p>
               Auto-deals run automatically each turn without action cost. When enabled for a
@@ -854,6 +858,9 @@ export function Methodology() {
             />
             <Formula
               tex={String.raw`\text{Approval campaign} \rightarrow +5\text{ to }+13\ \text{external approval}`}
+            />
+            <Formula
+              tex={String.raw`\text{Passive approval}_{t} = \operatorname{clamp}(0.35+0.12(B_{\text{foreign}}+1)+0.06(L-1)+0.003(\text{skill}-50)-0.2\,\text{corruption}/100,\ 0.2,\ 1.2)`}
             />
             <Formula
               tex={String.raw`\text{Auto-deal} = 1\ \text{unit},\ 3\ \text{turns},\ +1\text{ to }+2\ \text{relations/turn to all in need}`}
@@ -902,6 +909,12 @@ export function Methodology() {
               what households can actually buy. The currency gap is the absolute difference between
               the market exchange rate and its purchasing-power-parity fair value.
             </p>
+            <p>
+              Average relations and external approval measure world standing. Pairwise alignment is
+              the mean of the two countries' alignment baselines, and the player's baseline is the
+              mean rival alignment. External approval follows the same smoothing over the approval
+              rivals hold toward the player.
+            </p>
           </div>
           <div className="method-formula-col">
             <Formula tex={String.raw`\text{treasury}' = \log_{10}(\max(\text{treasury},0)+1)`} />
@@ -920,6 +933,10 @@ export function Methodology() {
             <Formula tex={String.raw`\text{inflation}' = 1-\operatorname{normalize}(\pi)`} />
             <Formula
               tex={String.raw`\text{currency}' = 1-\operatorname{normalize}\left(\left|\frac{FX}{F}-1\right|100\right)`}
+            />
+            <Formula tex={String.raw`\text{relations}' = \operatorname{normalize}(\bar{r})`} />
+            <Formula
+              tex={String.raw`\text{externalApproval}' = \operatorname{normalize}(\bar{a})`}
             />
             <Formula
               tex={String.raw`\text{Population}' = \operatorname{normalize}(\log_{10}\text{population})`}

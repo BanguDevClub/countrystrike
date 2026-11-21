@@ -3460,3 +3460,140 @@
   color: var(--muted);
   font-weight: 600;
 }
+
+.currency-compare {
+  margin-bottom: 14px;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface-2);
+}
+
+.currency-compare-head {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  gap: 16px;
+  align-items: center;
+}
+
+.currency-side {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.currency-side strong {
+  font-family: var(--font-display);
+  font-size: 1.35rem;
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+}
+
+.currency-side small {
+  color: var(--faint);
+  font-size: 0.64rem;
+}
+
+.currency-side-compare .select {
+  width: 100%;
+  max-width: 210px;
+}
+
+.currency-cross {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 8px 16px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+  text-align: center;
+}
+
+.currency-cross span {
+  color: var(--faint);
+  font-size: 0.62rem;
+  font-weight: 650;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.currency-cross strong {
+  color: var(--accent);
+  font-family: var(--font-display);
+  font-size: 1rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.currency-cross small {
+  color: var(--faint);
+  font-size: 0.6rem;
+}
+
+.currency-compare-grid {
+  display: flex;
+  flex-direction: column;
+  margin-top: 12px;
+  border-top: 1px solid var(--border);
+}
+
+.currency-compare-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 84px 84px 84px;
+  gap: 8px;
+  align-items: baseline;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--border);
+  font-size: 0.68rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.currency-compare-row:last-child {
+  border-bottom: 0;
+}
+
+.currency-compare-row > span {
+  color: var(--muted);
+}
+
+.currency-compare-row > strong {
+  text-align: right;
+  color: var(--fg);
+  font-weight: 600;
+}
+
+.currency-compare-labels {
+  color: var(--faint);
+  font-size: 0.6rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.currency-compare-labels > strong {
+  color: var(--faint);
+  font-size: 0.6rem;
+  font-weight: 700;
+}
+
+.commerce-parity-table {
+  min-width: 940px;
+}
+
+@media (max-width: 720px) {
+  .currency-compare-head {
+    grid-template-columns: 1fr;
+  }
+
+  .currency-cross {
+    align-items: flex-start;
+    text-align: left;
+  }
+
+  .currency-compare-row {
+    grid-template-columns: minmax(0, 1fr) 64px 64px 64px;
+    font-size: 0.63rem;
+  }
+}

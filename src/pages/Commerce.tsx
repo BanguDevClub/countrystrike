@@ -5,6 +5,8 @@ import { useGame, selectPlayer } from '../state/gameStore'
 import {
   computeBudget,
   computeCommerce,
+  currencyGap,
+  currencyStrength,
   gdpGrowthDrivers,
   inflationTarget,
   resourceFlows,
@@ -60,6 +62,7 @@ export function Commerce() {
   const setCommercePolicy = useGame((state) => state.setCommercePolicy)
   const setPage = useGame((state) => state.setPage)
   const [filter, setFilter] = useState<CommerceFilter>('all')
+  const [compareId, setCompareId] = useState('')
   const [draft, setDraft] = useState<Record<CommerceGoodId, number>>(() =>
     player ? policyFrom(player) : ({} as Record<CommerceGoodId, number>),
   )
@@ -104,8 +107,23 @@ export function Commerce() {
     ['commerce', 'costOfLiving', 'inflation'].includes(driver.key),
   )
   const parityRows = [...liveCountries].sort(
-    (a, b) => Number(b.isPlayer) - Number(a.isPlayer) || a.name.localeCompare(b.name),
+    (a, b) => currencyStrength(b) - currencyStrength(a) || a.name.localeCompare(b.name),
   )
+  const compareCountry =
+    liveCountries.find((country) => country.id === compareId && !country.isPlayer) ??
+    liveCountries.find((country) => !country.isPlayer) ??
+    player
+  const crossRate =
+    player.currency.rate > 0 ? compareCountry.currency.rate / player.currency.rate : 0
+  const reverseCross =
+    compareCountry.currency.rate > 0 ? player.currency.rate / compareCountry.currency.rate : 0
+  const inflationDiff = player.stats.inflation - compareCountry.stats.inflation
+  const playerGap = currencyGap(player)
+  const compareGap = currencyGap(compareCountry)
+  const gapDiff = playerGap - compareGap
+  const playerCurrencyStrength = currencyStrength(player)
+  const compareCurrencyStrength = currencyStrength(compareCountry)
+  const strengthDiff = playerCurrencyStrength - compareCurrencyStrength
 
   return (
     <div className="page">
@@ -440,30 +458,118 @@ export function Commerce() {
       </SectionCard>
 
       <SectionCard
-        title="World currency parity"
-        subtitle="Every living country carries inflation and a currency. The gap versus PPP shows whether the market rate is weaker (positive) or stronger (negative) than its fair value."
+        title="Currency parity & strength ranking"
+        subtitle="Compare your currency with any partner, then rank every living currency by stability."
       >
+        <div className="currency-compare">
+          <div className="currency-compare-head">
+            <div className="currency-side">
+              <span className="mini-kicker">Your currency</span>
+              <strong>{player.currency.code}</strong>
+              <small>
+                {player.currency.name} · {player.currency.regime}
+              </small>
+            </div>
+            <div className="currency-cross">
+              <span>1 {player.currency.code} buys</span>
+              <strong>
+                {formatNumber(crossRate, 3)} {compareCountry.currency.code}
+              </strong>
+              <small>
+                1 {compareCountry.currency.code} = {formatNumber(reverseCross, 3)}{' '}
+                {player.currency.code}
+              </small>
+            </div>
+            <div className="currency-side currency-side-compare">
+              <span className="mini-kicker">Compare with</span>
+              <select
+                className="select select-small"
+                value={compareCountry.id}
+                onChange={(event) => setCompareId(event.target.value)}
+                aria-label="Compare currency with"
+              >
+                {liveCountries
+                  .filter((country) => !country.isPlayer)
+                  .map((country) => (
+                    <option key={country.id} value={country.id}>
+                      {country.name} · {country.currency.code}
+                    </option>
+                  ))}
+              </select>
+              <small>
+                {compareCountry.currency.name} · {compareCountry.currency.regime}
+              </small>
+            </div>
+          </div>
+
+          <div className="currency-compare-grid">
+            <div className="currency-compare-row currency-compare-labels">
+              <span>Metric</span>
+              <strong>{player.currency.code}</strong>
+              <strong>{compareCountry.currency.code}</strong>
+              <strong>Edge</strong>
+            </div>
+            <div className="currency-compare-row">
+              <span>Rate per credit</span>
+              <strong>{formatNumber(player.currency.rate, 3)}</strong>
+              <strong>{formatNumber(compareCountry.currency.rate, 3)}</strong>
+              <strong className="text-muted">—</strong>
+            </div>
+            <div className="currency-compare-row">
+              <span>Inflation</span>
+              <strong>{formatDecimal(player.stats.inflation, 1)}%</strong>
+              <strong>{formatDecimal(compareCountry.stats.inflation, 1)}%</strong>
+              <strong className={inflationDiff <= 0 ? 'text-positive' : 'text-negative'}>
+                {formatSignedNumber(inflationDiff, 1)} pts
+              </strong>
+            </div>
+            <div className="currency-compare-row">
+              <span>PPP gap</span>
+              <strong>{formatDecimal(playerGap, 1)}%</strong>
+              <strong>{formatDecimal(compareGap, 1)}%</strong>
+              <strong className={gapDiff <= 0 ? 'text-positive' : 'text-negative'}>
+                {formatSignedNumber(gapDiff, 1)} pts
+              </strong>
+            </div>
+            <div className="currency-compare-row">
+              <span>Strength score</span>
+              <strong>{formatDecimal(playerCurrencyStrength, 1)}</strong>
+              <strong>{formatDecimal(compareCurrencyStrength, 1)}</strong>
+              <strong className={strengthDiff >= 0 ? 'text-positive' : 'text-negative'}>
+                {formatSignedNumber(strengthDiff, 1)}
+              </strong>
+            </div>
+          </div>
+          <p className="formula-note">
+            Strength score = 100 − 1.6 × inflation − 1.2 × PPP gap − 0.4 × depreciation. Cross rates
+            use 1 {player.currency.code} = {formatNumber(crossRate, 3)}{' '}
+            {compareCountry.currency.code}.
+          </p>
+        </div>
+
         <div className="table-wrap">
           <table className="commerce-parity-table">
             <thead>
               <tr>
+                <th className="num">#</th>
                 <th>Country</th>
                 <th>Currency</th>
-                <th>Regime</th>
+                <th className="num">Score</th>
                 <th className="num">Rate / CR</th>
                 <th className="num">Move</th>
                 <th className="num">Inflation</th>
                 <th className="num">Fair rate</th>
-                <th className="num">vs PPP</th>
+                <th className="num">Gap</th>
               </tr>
             </thead>
             <tbody>
-              {parityRows.map((country) => {
+              {parityRows.map((country, index) => {
                 const rowCurrency = country.currency
-                const gap =
-                  rowCurrency.fairRate > 0 ? (rowCurrency.rate / rowCurrency.fairRate - 1) * 100 : 0
+                const gap = currencyGap(country)
+                const strength = currencyStrength(country)
                 return (
                   <tr key={country.id} className={country.isPlayer ? 'commerce-self-row' : ''}>
+                    <td className="num">{index + 1}</td>
                     <td>
                       <span className="resource-inline">
                         <Flag seed={country.flagSeed} code={country.code} size="sm" />
@@ -475,7 +581,13 @@ export function Commerce() {
                       <strong>{rowCurrency.code}</strong>
                       <span className="commerce-currency-name">{rowCurrency.name}</span>
                     </td>
-                    <td>{rowCurrency.regime}</td>
+                    <td className="num">
+                      <Badge
+                        tone={strength >= 75 ? 'positive' : strength >= 50 ? 'warning' : 'negative'}
+                      >
+                        {formatDecimal(strength, 1)}
+                      </Badge>
+                    </td>
                     <td className="num">
                       {formatNumber(rowCurrency.rate, rowCurrency.rate < 1 ? 3 : 2)}
                     </td>
@@ -487,9 +599,9 @@ export function Commerce() {
                     <td className="num">{formatDecimal(country.stats.inflation, 1)}%</td>
                     <td className="num">{formatNumber(rowCurrency.fairRate, 3)}</td>
                     <td
-                      className={`num ${Math.abs(gap) < 3 ? 'text-muted' : gap > 0 ? 'text-warning' : 'text-positive'}`}
+                      className={`num ${gap < 3 ? 'text-muted' : gap < 8 ? 'text-warning' : 'text-negative'}`}
                     >
-                      {formatSignedPercent(gap)}
+                      {formatDecimal(gap, 1)}%
                     </td>
                   </tr>
                 )
@@ -498,9 +610,9 @@ export function Commerce() {
           </table>
         </div>
         <p className="formula-note">
-          Rate is local units per credit; cross rates follow by dividing the two rates. A positive
-          move means the local currency weakened. Floating rates converge in about four turns;
-          pegged rates are capped at 1% per turn.
+          Ranked by strength score. Rate is local units per credit; cross rates follow by dividing
+          the two rates. A positive move means the local currency weakened. Floating rates converge
+          in about four turns; pegged rates are capped at 1% per turn.
         </p>
       </SectionCard>
     </div>

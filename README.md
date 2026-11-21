@@ -50,18 +50,23 @@ world and its history are persisted in `localStorage` after every action.
   approval, depression, HDI and Gini.
 - **Currencies and inflation** — every nation has its own currency, inflation rate and exchange
   regime. Inflation responds to deficits, shortages and cost pressure; exchange rates
-  mean-revert toward relative purchasing-power parity with trade and risk premiums.
+  mean-revert toward relative purchasing-power parity with trade and risk premiums. Compare any
+  two currencies and rank the world by currency strength.
 - **Eight resource industries** — water, energy, agriculture, livestock, oil, metal, rare earth
   and uranium. Tiered d6 upgrades (1 fail, 2–5 improvements, 6 advancement) and single d10 research
   stimulus (1 fail, 2–9 bonuses on ext & ref, 10 +20% & advancement). Production, stockpiles and
   known reserves are valued against GDP on the Industry screen.
 - **A composite world ranking** — treasure, debt, GDP, GDP per capita, PPP per capita,
-  inflation, currency gap, population, military power, approval, HDI, Gini, violence and
-  depression become a weighted 0–100 score with sortable columns and historical series charts.
+  inflation, currency gap, average relations, external approval, population, military power,
+  approval, HDI, Gini, violence and depression become a weighted 0–100 score with sortable
+  columns and historical series charts.
 - **Trade as foreign policy** — rival governments match surpluses to deficits through a world
   market pass; prices respond to aggregate deficits, the export volume that actually covers them
   and reserve scarcity. Manual contracts, 3-turn auto-deals, price posture and diplomatic
   consequences sit on top.
+- **Events with teeth** — ministry betrayal events are gated by loyalty above 70, corruption
+  events by corruption below 30. A nation above 1,000% debt/GDP faces a sovereign auction, and
+  the core deck adds grey-market, emigration, regional-fund and digital-corridor choices.
 - **World and economy modifiers** — resource prices, scarcity, market volatility, starting
   treasury, starting debt and starting industry can be tuned before generation.
 - **Two routes to the end** — reach 100 relations, unlock external approval, campaign it to 100

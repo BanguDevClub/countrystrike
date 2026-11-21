@@ -165,6 +165,60 @@ export function currencyGap(country: Country): number {
   return roundTo(Math.abs((currency.rate / currency.fairRate - 1) * 100), 2)
 }
 
+/** Stable-currency score: low inflation, low PPP gap and no depreciation rank higher. */
+export function currencyStrength(country: Country): number {
+  const inflation = Math.max(0, country.stats.inflation ?? 0)
+  const gap = currencyGap(country)
+  const depreciation = Math.max(0, country.currency?.changePct ?? 0)
+  return roundTo(clamp(100 - inflation * 1.6 - gap * 1.2 - depreciation * 0.4, 0, 100), 1)
+}
+
+/**
+ * Average foreign relations for one country in the living world. The game
+ * stores each rival's alignment toward the player, so the player's baseline is
+ * the mean rival alignment and every pair is the mean of the two baselines.
+ */
+export function averageRelationsForCountry(country: Country, countries: Country[]): number {
+  const living = countries.filter((entry) => entry.status === 'alive')
+  if (living.length <= 1) return country.isPlayer ? 100 : country.relations
+  const rivals = living.filter((entry) => !entry.isPlayer)
+  const rivalMean =
+    rivals.length > 0
+      ? rivals.reduce((total, entry) => total + entry.relations, 0) / rivals.length
+      : 0
+  const baseline = (entry: Country): number => (entry.isPlayer ? rivalMean : entry.relations)
+  const own = baseline(country)
+  let total = 0
+  let count = 0
+  for (const other of living) {
+    if (other.id === country.id) continue
+    total += (own + baseline(other)) / 2
+    count += 1
+  }
+  return roundTo(clamp(total / Math.max(1, count), -100, 100), 1)
+}
+
+/** Average external approval standing in the living world, 0–100. */
+export function worldApprovalForCountry(country: Country, countries: Country[]): number {
+  const living = countries.filter((entry) => entry.status === 'alive')
+  if (living.length <= 1) return country.isPlayer ? 100 : country.externalApproval
+  const rivals = living.filter((entry) => !entry.isPlayer)
+  const rivalMean =
+    rivals.length > 0
+      ? rivals.reduce((total, entry) => total + entry.externalApproval, 0) / rivals.length
+      : 0
+  const baseline = (entry: Country): number => (entry.isPlayer ? rivalMean : entry.externalApproval)
+  const own = baseline(country)
+  let total = 0
+  let count = 0
+  for (const other of living) {
+    if (other.id === country.id) continue
+    total += (own + baseline(other)) / 2
+    count += 1
+  }
+  return roundTo(clamp(total / Math.max(1, count), 0, 100), 1)
+}
+
 export function debtLimit(country: Country): number {
   const approvalFactor = clamp(0.6 + country.stats.approval / 150, 0.55, 1.25)
   return country.stats.gdp * (0.55 + country.stats.debtRate / 25) * approvalFactor
@@ -991,6 +1045,10 @@ const metricValue = (country: Country, key: CompositeMetricKey): number => {
       return Math.max(0, country.stats.inflation ?? 0)
     case 'currency':
       return currencyGap(country)
+    case 'relations':
+      return country.stats.averageRelations
+    case 'externalApproval':
+      return country.stats.worldApproval
     case 'population':
       return Math.log10(Math.max(0.1, country.stats.population))
     case 'militaryPower':
@@ -1080,6 +1138,8 @@ export function countrySnapshot(
     gdpPerCapita: gdpPerCapita(country),
     pppPerCapita: country.stats.pppPerCapita || gdpPerCapita(country),
     currencyGap: currencyGap(country),
+    averageRelations: country.stats.averageRelations,
+    worldApproval: country.stats.worldApproval,
     composite,
   }
 }

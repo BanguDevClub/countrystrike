@@ -32,6 +32,7 @@ import type {
 import { RNG, clamp, lerp, roundTo, sum } from './rng'
 import {
   averageCorruption,
+  averageRelationsForCountry,
   combinedModifiers,
   computeBudget,
   computeComposites,
@@ -49,6 +50,7 @@ import {
   resourceFlows,
   soldiersPer100k,
   stockRunway,
+  worldApprovalForCountry,
 } from './selectors'
 import { eventCandidates } from './events'
 import { formatMoney } from './format'
@@ -475,6 +477,47 @@ function updateRelations(game: GameState, player: Country, rng: RNG): void {
   }
 }
 
+/** Full alignment grows external approval slowly, even without a campaign. */
+function growPassiveApproval(game: GameState, player: Country): void {
+  const foreignBudget = BUDGET_MULTIPLIERS[player.ministries.foreign.budget]
+  const foreignHead = player.ministries.foreign?.head
+  const foreignLevel = player.ministries.foreign?.level ?? 1
+  const passiveGain = clamp(
+    0.35 +
+      (foreignBudget + 1) * 0.12 +
+      (foreignLevel - 1) * 0.06 +
+      (foreignHead ? (foreignHead.skill - 50) * 0.003 : 0) -
+      (foreignHead ? (foreignHead.corruption / 100) * 0.2 : 0),
+    0.2,
+    1.2,
+  )
+  for (const country of rivalCountries(game)) {
+    if (country.relations < 100 || country.externalApproval >= 100) continue
+    const previousApproval = country.externalApproval
+    country.externalApproval = roundTo(clamp(previousApproval + passiveGain, 0, 100), 1)
+    if (previousApproval < 100 && country.externalApproval >= 100) {
+      pushLog(
+        game,
+        'diplomacy',
+        `${country.name} now fully approves integration with ${player.name}.`,
+        country,
+        'positive',
+      )
+    }
+  }
+}
+
+/* ── World standing ────────────────────────────────────────────────────── */
+
+/** Recomputes average relations and external approval for every living state. */
+export function refreshWorldStanding(game: GameState): void {
+  const living = livingCountries(game)
+  for (const country of living) {
+    country.stats.averageRelations = averageRelationsForCountry(country, living)
+    country.stats.worldApproval = worldApprovalForCountry(country, living)
+  }
+}
+
 function runHostileAttacks(game: GameState, player: Country, rng: RNG): void {
   const aggression =
     game.settings.difficulty === 'easy' ? 0 : game.settings.difficulty === 'normal' ? 0.35 : 0.65
@@ -806,6 +849,12 @@ function generateEvents(game: GameState, rng: RNG): void {
   )
   if (candidates.length === 0) return
 
+  // 0. A debt crisis above 1,000% of GDP forces a sovereign auction.
+  const auction = candidates.find((event) => event.id === 'sovereign_auction')
+  if (auction && !game.eventQueue.includes(auction.id)) {
+    game.eventQueue.push(auction.id)
+  }
+
   // 1. If any rival country has zero treasury: add bailout request event including that country
   const brokeCountries = game.countries.filter(
     (c) => c.status === 'alive' && !c.isPlayer && c.stats.treasury <= 0,
@@ -866,6 +915,7 @@ export function advanceTurn(game: GameState): GameState {
     return game
   }
 
+  growPassiveApproval(game, player)
   runAiActions(game, rng)
   runAutoDeals(game, player, rng)
   runWorldMarket(game, rng)
@@ -935,6 +985,7 @@ export function advanceTurn(game: GameState): GameState {
   updateCurrencies(game, rng, actualBudgets)
   updateRelations(game, player, rng)
   if (player.status === 'alive') runHostileAttacks(game, player, rng)
+  refreshWorldStanding(game)
   updatePrices(game, flowsByCountry, rng)
 
   for (const deal of game.deals) deal.remainingTurns -= 1

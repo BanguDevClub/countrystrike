@@ -34,6 +34,8 @@ type RankingMetric =
   | 'pppPerCapita'
   | 'inflation'
   | 'currency'
+  | 'relations'
+  | 'externalApproval'
   | 'population'
   | 'militaryPower'
   | 'approval'
@@ -51,6 +53,8 @@ const METRIC_LABELS: Record<RankingMetric, string> = {
   pppPerCapita: 'PPP per capita',
   inflation: 'Inflation',
   currency: 'Currency gap',
+  relations: 'Avg. relations',
+  externalApproval: 'External approval',
   population: 'Population',
   militaryPower: 'Military power',
   approval: 'Approval',
@@ -94,6 +98,10 @@ function valueForRow(row: RankingRow, metric: RankingMetric): number {
       return row.country.stats.inflation
     case 'currency':
       return currencyGap(row.country)
+    case 'relations':
+      return row.country.stats.averageRelations
+    case 'externalApproval':
+      return row.country.stats.worldApproval
     case 'population':
       return row.country.stats.population
     case 'militaryPower':
@@ -129,6 +137,10 @@ function valueForSnapshot(snapshot: CountrySnapshot, metric: RankingMetric): num
       return snapshot.inflation
     case 'currency':
       return snapshot.currencyGap
+    case 'relations':
+      return snapshot.averageRelations
+    case 'externalApproval':
+      return snapshot.worldApproval
     case 'population':
       return snapshot.population
     case 'militaryPower':
@@ -157,7 +169,10 @@ function formatMetric(metric: RankingMetric, value: number): string {
       return formatUsd(value)
     case 'inflation':
     case 'currency':
+    case 'externalApproval':
       return `${formatDecimal(value, 1)}%`
+    case 'relations':
+      return formatDecimal(value, 0)
     case 'population':
       return `${formatNumber(value, 1)}M`
     case 'militaryPower':
@@ -176,7 +191,14 @@ function formatMetric(metric: RankingMetric, value: number): string {
 }
 
 const CHART_COLORS = ['var(--c1)', 'var(--c2)', 'var(--c3)', 'var(--c4)', 'var(--c5)', 'var(--c6)']
-const MACRO_METRICS: RankingMetric[] = ['inflation', 'currency', 'gdpPerCapita', 'pppPerCapita']
+const MACRO_METRICS: RankingMetric[] = [
+  'inflation',
+  'currency',
+  'relations',
+  'externalApproval',
+  'gdpPerCapita',
+  'pppPerCapita',
+]
 
 export function Ranking() {
   const game = useGame((state) => state.game)
@@ -264,6 +286,8 @@ export function Ranking() {
         turn: point.turn,
         inflation: snapshot?.inflation ?? null,
         currency: snapshot?.currencyGap ?? null,
+        relations: snapshot?.averageRelations ?? null,
+        externalApproval: snapshot?.worldApproval ?? null,
         gdpPerCapita: snapshot?.gdpPerCapita ?? null,
         pppPerCapita: snapshot?.pppPerCapita ?? null,
       }
@@ -473,7 +497,7 @@ export function Ranking() {
       <SectionCard
         className="chart-card ranking-history-card"
         title="Macro history"
-        subtitle="Your inflation, currency misalignment, GDP per capita and PPP per capita across turns."
+        subtitle="Your inflation, currency misalignment, average relations, external approval and living standards across turns."
       >
         {macroData.length === 0 ? (
           <EmptyState
@@ -546,7 +570,8 @@ export function Ranking() {
         )}
         <div className="chart-footnote">
           <Icon name="Info" size={13} /> PPP per capita is GDP per capita divided by the consumer
-          basket index. Currency gap is the absolute PPP misalignment of the market rate.
+          basket index. Currency gap is the absolute PPP misalignment of the market rate. Avg.
+          relations and external approval are the world standing of each state.
         </div>
       </SectionCard>
 
@@ -628,6 +653,12 @@ export function Ranking() {
                 <SortHeader metric="approval" numeric>
                   Approval
                 </SortHeader>
+                <SortHeader metric="relations" numeric>
+                  Avg. relations
+                </SortHeader>
+                <SortHeader metric="externalApproval" numeric>
+                  External approval
+                </SortHeader>
                 <SortHeader metric="inflation" numeric>
                   Inflation
                 </SortHeader>
@@ -651,7 +682,7 @@ export function Ranking() {
             <tbody>
               {sortedRows.length === 0 ? (
                 <tr>
-                  <td colSpan={17}>
+                  <td colSpan={19}>
                     <EmptyState
                       icon="Search"
                       title="No countries match"
@@ -716,6 +747,8 @@ export function Ranking() {
                       <td className="num">{formatNumber(country.stats.population, 1)}M</td>
                       <td className="num">{formatDecimal(row.power, 0)}</td>
                       <td className="num">{formatPercent(country.stats.approval)}</td>
+                      <td className="num">{formatDecimal(country.stats.averageRelations, 0)}</td>
+                      <td className="num">{formatPercent(country.stats.worldApproval)}</td>
                       <td className="num">
                         <span
                           className={

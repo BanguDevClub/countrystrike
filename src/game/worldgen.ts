@@ -51,12 +51,14 @@ import type {
 import { RNG, clamp, randomSeed, roundTo } from './rng'
 import { shadeHex } from './color'
 import {
+  averageRelationsForCountry,
   combinedModifiers,
   computeCommerce,
   computeMarket,
   gdpPerCapita,
   resourceFlows,
   resourceModifier,
+  worldApprovalForCountry,
 } from './selectors'
 
 /* ── Name helpers ──────────────────────────────────────────────────────── */
@@ -485,6 +487,8 @@ function generateCountry(
     corruption: 40,
     inflation: roundTo(rng.float(1.5, 7.5), 1),
     pppPerCapita: gdpPerCapita,
+    averageRelations: 0,
+    worldApproval: 0,
   }
 
   const countryCode = makeCode(name, usedCodes)
@@ -815,6 +819,8 @@ export function generateWorld(settingsInput: GameSettings, seed = randomSeed()):
       gdpPerCapita(country) / Math.max(0.2, commerce.basketIndex / 100),
       0,
     )
+    country.stats.averageRelations = averageRelationsForCountry(country, countries)
+    country.stats.worldApproval = worldApprovalForCountry(country, countries)
   }
 
   const logs: LogEntry[] = [

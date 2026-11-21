@@ -46,6 +46,12 @@ export function applyEventEffects(
     country.stats.debt = Math.max(0, country.stats.debt + amount)
     lines.push(`Debt ${amount >= 0 ? '+' : ''}${formatMoney(amount)}`)
   }
+  if (effects.clearDebt) {
+    const cleared = country.stats.debt
+    country.stats.debt = 0
+    country.stats.debtRate = Math.min(country.stats.debtRate, 5)
+    lines.push(`Debt cleared: ${formatMoney(cleared)} retired under the sovereign settlement`)
+  }
   if (effects.approval !== undefined) {
     country.stats.approval = clamp(country.stats.approval + effects.approval, 0, 100)
     lines.push(`Approval ${formatSignedNumber(effects.approval)}`)
@@ -149,19 +155,27 @@ export function applyEventEffects(
     const minName = titleCase(effects.ministryId)
     if (effects.ministerLoyaltyDelta !== undefined) {
       min.head.loyalty = clamp(min.head.loyalty + effects.ministerLoyaltyDelta, 0, 100)
-      lines.push(`${minName} Minister loyalty ${formatSignedNumber(effects.ministerLoyaltyDelta)} (${min.head.loyalty})`)
+      lines.push(
+        `${minName} Minister loyalty ${formatSignedNumber(effects.ministerLoyaltyDelta)} (${min.head.loyalty})`,
+      )
     }
     if (effects.ministerCorruptionDelta !== undefined) {
       min.head.corruption = clamp(min.head.corruption + effects.ministerCorruptionDelta, 0, 100)
-      lines.push(`${minName} Minister corruption ${formatSignedNumber(effects.ministerCorruptionDelta)} (${min.head.corruption})`)
+      lines.push(
+        `${minName} Minister corruption ${formatSignedNumber(effects.ministerCorruptionDelta)} (${min.head.corruption})`,
+      )
     }
     if (effects.ministerSkillDelta !== undefined) {
       min.head.skill = clamp(min.head.skill + effects.ministerSkillDelta, 0, 100)
-      lines.push(`${minName} Minister skill ${formatSignedNumber(effects.ministerSkillDelta)} (${min.head.skill})`)
+      lines.push(
+        `${minName} Minister skill ${formatSignedNumber(effects.ministerSkillDelta)} (${min.head.skill})`,
+      )
     }
     if (effects.ministryLevelDelta !== undefined) {
       min.level = clamp((min.level ?? 1) + effects.ministryLevelDelta, 1, 5)
-      lines.push(`${minName} Ministry level ${effects.ministryLevelDelta > 0 ? '+' : ''}${effects.ministryLevelDelta} (Tier ${min.level})`)
+      lines.push(
+        `${minName} Ministry level ${effects.ministryLevelDelta > 0 ? '+' : ''}${effects.ministryLevelDelta} (Tier ${min.level})`,
+      )
     }
   }
   if (effects.replaceSpecificMinister && country.ministries[effects.replaceSpecificMinister]) {
@@ -173,22 +187,30 @@ export function applyEventEffects(
       loyalty: rng.int(70, 98),
       skill: rng.int(50, 95),
     }
-    lines.push(`${oldName} dismissed from ${titleCase(effects.replaceSpecificMinister)}; succeeded by ${target.head.name}`)
+    lines.push(
+      `${oldName} dismissed from ${titleCase(effects.replaceSpecificMinister)}; succeeded by ${target.head.name}`,
+    )
   }
   if (effects.targetCountryId) {
     const target = game.countries.find((c) => c.id === effects.targetCountryId)
     if (target && target.status === 'alive') {
       if (effects.targetCountryMoney !== undefined) {
         target.stats.treasury = Math.max(0, target.stats.treasury + effects.targetCountryMoney)
-        lines.push(`${target.name} Treasury ${effects.targetCountryMoney >= 0 ? '+' : ''}${formatMoney(effects.targetCountryMoney)}`)
+        lines.push(
+          `${target.name} Treasury ${effects.targetCountryMoney >= 0 ? '+' : ''}${formatMoney(effects.targetCountryMoney)}`,
+        )
       }
       if (effects.targetCountryDebt !== undefined) {
         target.stats.debt = Math.max(0, target.stats.debt + effects.targetCountryDebt)
-        lines.push(`${target.name} Debt ${effects.targetCountryDebt >= 0 ? '+' : ''}${formatMoney(effects.targetCountryDebt)}`)
+        lines.push(
+          `${target.name} Debt ${effects.targetCountryDebt >= 0 ? '+' : ''}${formatMoney(effects.targetCountryDebt)}`,
+        )
       }
       if (effects.targetCountryRelations !== undefined) {
         target.relations = clamp(target.relations + effects.targetCountryRelations, -100, 100)
-        lines.push(`Relations with ${target.name} ${formatSignedNumber(effects.targetCountryRelations)}`)
+        lines.push(
+          `Relations with ${target.name} ${formatSignedNumber(effects.targetCountryRelations)}`,
+        )
       }
     }
   }
@@ -227,7 +249,7 @@ const shortageResources = (game: GameState, player: Country): ResourceId[] => {
 }
 
 const CORE_EVENTS: GameEventDefinition[] = [
-{
+  {
     id: 'inauguration',
     title: 'The First Morning',
     body: 'The residence is yours. Outside the gates, the capital is still deciding what kind of country this will be. Your cabinet waits for a first signal: spend, cut, or reassure.',
@@ -833,6 +855,192 @@ const CORE_EVENTS: GameEventDefinition[] = [
       },
     ],
   },
+  {
+    id: 'sovereign_auction',
+    title: 'The Sovereign Auction',
+    body: 'Debt has passed 1,000% of GDP. The finance ministry has stopped publishing a consolidated balance sheet, and a consortium of foreign creditors has arrived with a proposal: auction the state itself. Ports, the grid, the tax authority and the sovereign charter are on the block. The cabinet is silent.',
+    category: 'economy',
+    weight: 100,
+    condition: (_state, player) =>
+      player.stats.gdp > 0 && player.stats.debt > player.stats.gdp * 10,
+    choices: [
+      {
+        id: 'sell_charter',
+        label: 'Sell the sovereign charter',
+        description:
+          'Clear all national debt and receive a 10% GDP settlement. Approval −25, corruption +10, security −10, relations −10, GDP −5%.',
+        tone: 'danger',
+        effects: {
+          clearDebt: true,
+          moneyPctGdp: 0.1,
+          approval: -25,
+          corruption: 10,
+          security: -10,
+          allRelations: -10,
+          gdpPct: -0.05,
+          log: 'The sovereign charter is sold. Foreign receivership clears the debt, but the state is no longer fully its own.',
+        },
+      },
+      {
+        id: 'auction_assets',
+        label: 'Auction state assets',
+        description:
+          'Treasury +12% of GDP, debt −200% of GDP, approval −10, corruption +6, GDP −3%.',
+        tone: 'danger',
+        effects: {
+          moneyPctGdp: 0.12,
+          debtPctGdp: -2,
+          approval: -10,
+          corruption: 6,
+          gdpPct: -0.03,
+          log: 'State assets are auctioned to the highest bidders. The debt falls, but the family silver is gone.',
+        },
+      },
+      {
+        id: 'default',
+        label: 'Declare a sovereign default',
+        description:
+          'Retire 400% of GDP in debt. Approval −15, relations −20, security −5, corruption +5, GDP −10%.',
+        tone: 'danger',
+        effects: {
+          debtPctGdp: -4,
+          approval: -15,
+          allRelations: -20,
+          security: -5,
+          corruption: 5,
+          gdpPct: -0.1,
+          log: 'The republic defaults. Creditors are burned, the currency is cut loose, and the world takes notice.',
+        },
+      },
+    ],
+  },
+  {
+    id: 'misc_shadow_economy',
+    title: 'The Grey Market',
+    body: 'A parallel economy has become too large to ignore. Cash wages, unregistered workshops and a network of informal brokers now move a serious share of household spending outside the tax code.',
+    category: 'economy',
+    weight: 13,
+    condition: (_state, player) => player.stats.corruption > 40 || player.taxes.income > 45,
+    choices: [
+      {
+        id: 'formalise',
+        label: 'Offer a formalisation window',
+        description: 'Spend 0.8% of GDP. Corruption −4, approval +2, relations +1.',
+        tone: 'positive',
+        effects: { moneyPctGdp: -0.008, corruption: -4, approval: 2, allRelations: 1 },
+      },
+      {
+        id: 'amnesty',
+        label: 'Declare a tax amnesty',
+        description: 'Treasury +1.5% of GDP, corruption +3, approval −2.',
+        effects: { moneyPctGdp: 0.015, corruption: 3, approval: -2 },
+      },
+      {
+        id: 'crackdown',
+        label: 'Crack down on informal trade',
+        description: 'Security +4, corruption −3, approval −3, spend 0.5% of GDP.',
+        tone: 'danger',
+        effects: { security: 4, corruption: -3, approval: -3, moneyPctGdp: -0.005 },
+      },
+    ],
+  },
+  {
+    id: 'misc_emigration_wave',
+    title: 'The Departure Lounge',
+    body: 'The airport is full of young professionals with one-way tickets. Remittances are rising, but so is the average age of the people who remain. The opposition calls it a verdict on the government.',
+    category: 'world',
+    weight: 12,
+    condition: (_state, player) => player.stats.approval < 42 || player.stats.depression > 14,
+    choices: [
+      {
+        id: 'retain',
+        label: 'Fund a retention package',
+        description: 'Spend 1.2% of GDP. Approval +5, GDP +0.2%, corruption −1.',
+        tone: 'positive',
+        effects: { moneyPctGdp: -0.012, approval: 5, gdpPct: 0.002, corruption: -1 },
+      },
+      {
+        id: 'open',
+        label: 'Embrace the diaspora',
+        description: 'Treasury +0.4% of GDP, relations +3, approval +2, GDP +0.1%.',
+        effects: { moneyPctGdp: 0.004, allRelations: 3, approval: 2, gdpPct: 0.001 },
+      },
+      {
+        id: 'restrict',
+        label: 'Restrict emigration',
+        description: 'Security +3, approval −4, relations −2.',
+        tone: 'danger',
+        effects: { security: 3, approval: -4, allRelations: -2 },
+      },
+    ],
+  },
+  {
+    id: 'misc_regional_fund',
+    title: 'The Regional Fund',
+    body: 'A group of neighbouring states has proposed a joint infrastructure fund. The terms are favourable, but the fund would give foreign partners a seat at the table on ports, rail and the grid.',
+    category: 'diplomacy',
+    weight: 11,
+    condition: (state, player) => averageRelations(state, player) > 45,
+    choices: [
+      {
+        id: 'join',
+        label: 'Join the fund',
+        description: 'Spend 0.6% of GDP. Relations +4, GDP +0.3%, approval +1.',
+        tone: 'positive',
+        effects: { moneyPctGdp: -0.006, allRelations: 4, gdpPct: 0.003, approval: 1 },
+      },
+      {
+        id: 'lead',
+        label: 'Lead the fund',
+        description: 'Spend 1.2% of GDP. Relations +6, GDP +0.4%, approval +2, corruption +1.',
+        tone: 'positive',
+        effects: {
+          moneyPctGdp: -0.012,
+          allRelations: 6,
+          gdpPct: 0.004,
+          approval: 2,
+          corruption: 1,
+        },
+      },
+      {
+        id: 'decline',
+        label: 'Decline the invitation',
+        description: 'Relations −2, treasury +0.3% of GDP.',
+        effects: { allRelations: -2, moneyPctGdp: 0.003 },
+      },
+    ],
+  },
+  {
+    id: 'misc_digital_corridor',
+    title: 'The Digital Corridor',
+    body: 'A consortium wants to lay a new data corridor through the country. It would bring construction, connectivity and a strategic dependency. The ministry has sent up three versions of the same memo.',
+    category: 'industry',
+    weight: 10,
+    condition: (_state, player) =>
+      player.stats.hdi > 0.62 || player.ministries.industry.budget === 'high',
+    choices: [
+      {
+        id: 'invest',
+        label: 'Co-invest in the corridor',
+        description: 'Spend 1.2% of GDP. GDP +0.6%, approval +2, corruption −1.',
+        tone: 'positive',
+        effects: { moneyPctGdp: -0.012, gdpPct: 0.006, approval: 2, corruption: -1 },
+      },
+      {
+        id: 'lease',
+        label: 'Lease the route to the consortium',
+        description: 'Treasury +1.5% of GDP, corruption +2, relations +2, GDP +0.2%.',
+        effects: { moneyPctGdp: 0.015, corruption: 2, allRelations: 2, gdpPct: 0.002 },
+      },
+      {
+        id: 'regulate',
+        label: 'Impose public-interest rules',
+        description: 'Approval +3, corruption −2, GDP −0.2%.',
+        tone: 'positive',
+        effects: { approval: 3, corruption: -2, gdpPct: -0.002 },
+      },
+    ],
+  },
 ]
 
 export const EVENTS: GameEventDefinition[] = [
@@ -840,14 +1048,12 @@ export const EVENTS: GameEventDefinition[] = [
   ...MINISTRY_EVENTS,
   ...BAILOUT_REQUEST_EVENTS,
 ]
-export const EVENT_BY_ID = Object.fromEntries(
-  EVENTS.map((event) => [event.id, event]),
-) as Record<string, GameEventDefinition>
+export const EVENT_BY_ID = Object.fromEntries(EVENTS.map((event) => [event.id, event])) as Record<
+  string,
+  GameEventDefinition
+>
 
-export function resolveEventForGame(
-  game: GameState,
-  eventId: string,
-): GameEventDefinition | null {
+export function resolveEventForGame(game: GameState, eventId: string): GameEventDefinition | null {
   const parts = eventId.split(':')
   const baseId = parts[0] ?? eventId
   const countryId = parts[1]
@@ -865,10 +1071,7 @@ export function resolveEventForGame(
 
   const name = targetCountry.name
   const player = game.countries.find((c) => c.isPlayer) ?? game.countries[0]
-  const grantAmount = Math.max(
-    25,
-    Math.round(((player?.stats.gdp ?? 1000) * 0.01) * 10) / 10,
-  )
+  const grantAmount = Math.max(25, Math.round((player?.stats.gdp ?? 1000) * 0.01 * 10) / 10)
 
   return {
     ...baseEvent,
@@ -923,6 +1126,13 @@ export function resolveEventForGame(
 export function eventCandidates(state: GameState, player: Country): GameEventDefinition[] {
   return EVENTS.filter((event) => {
     if (state.seenEvents.includes(event.id) && event.once) return false
+    if (event.ministryId && event.ministryCategory) {
+      const head = player.ministries[event.ministryId]?.head
+      if (head) {
+        if (event.ministryCategory === 'betrayal' && head.loyalty > 70) return false
+        if (event.ministryCategory === 'corruption' && head.corruption < 30) return false
+      }
+    }
     return event.condition ? event.condition(state, player) : true
   })
 }

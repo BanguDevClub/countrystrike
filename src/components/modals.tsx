@@ -1179,6 +1179,15 @@ function CountryModal({ countryId }: { countryId: string }) {
                   valueLabel={`${formatDecimal(country.stats.inflation, 1)}%`}
                 />
               </div>
+              <div className="metric-line">
+                <span>Avg. relations</span>
+                <ProgressBar
+                  value={Math.max(0, Math.min(100, (country.stats.averageRelations + 100) / 2))}
+                  tone={country.stats.averageRelations >= 0 ? 'positive' : 'negative'}
+                  thin
+                  valueLabel={formatDecimal(country.stats.averageRelations, 0)}
+                />
+              </div>
             </div>
           </section>
 
@@ -1285,7 +1294,7 @@ function CountryModal({ countryId }: { countryId: string }) {
                 {relations < 100
                   ? 'Reach 100 relations to unlock external approval, then campaign to 100 approval to merge this country.'
                   : country.externalApproval < 100
-                    ? 'Full alignment achieved. Fund an external approval campaign to prepare a merger.'
+                    ? 'Full alignment achieved. External approval now grows slowly on its own; a campaign accelerates it.'
                     : 'This country is ready to merge. Integration requires 2 actions.'}
               </p>
               <div className="action-cost-grid">

@@ -25,7 +25,7 @@ export const GITHUB_URL = 'https://github.com/BanguDevClub/countrystrike'
 export const ACTIONS_PER_TURN = 10
 export const SAVE_KEY = 'countrystrike-save'
 export const PREFS_KEY = 'countrystrike-prefs'
-export const SAVE_VERSION = 4
+export const SAVE_VERSION = 5
 export const HISTORY_LIMIT = 80
 
 export const DEFAULT_SETTINGS: GameSettings = {
@@ -1135,42 +1135,42 @@ export const COMPOSITE_METRICS: CompositeMetric[] = [
   {
     key: 'treasury',
     label: 'Treasure',
-    weight: 14,
+    weight: 13,
     direction: 'high',
     formula: 'normalize(log10(max(treasury, 0) + 1))',
   },
   {
     key: 'debt',
     label: 'Debt',
-    weight: 12,
+    weight: 11,
     direction: 'low',
     formula: '1 − normalize(log10(debt + 1))',
   },
   {
     key: 'gdp',
     label: 'GDP',
-    weight: 10,
+    weight: 9,
     direction: 'high',
     formula: 'normalize(log10(GDP))',
   },
   {
     key: 'gdpPerCapita',
     label: 'GDP per capita',
-    weight: 9,
+    weight: 8,
     direction: 'high',
     formula: 'normalize(log10(GDP / population))',
   },
   {
     key: 'pppPerCapita',
     label: 'PPP per capita',
-    weight: 9,
+    weight: 8,
     direction: 'high',
     formula: 'normalize(log10(PPP per capita))',
   },
   {
     key: 'inflation',
     label: 'Inflation',
-    weight: 5,
+    weight: 4,
     direction: 'low',
     formula: '1 − normalize(inflation)',
   },
@@ -1182,23 +1182,37 @@ export const COMPOSITE_METRICS: CompositeMetric[] = [
     formula: '1 − normalize(|FX / fair FX − 1| × 100)',
   },
   {
+    key: 'relations',
+    label: 'Average relations',
+    weight: 5,
+    direction: 'high',
+    formula: 'normalize(average relations)',
+  },
+  {
+    key: 'externalApproval',
+    label: 'External approval',
+    weight: 4,
+    direction: 'high',
+    formula: 'normalize(world approval)',
+  },
+  {
     key: 'population',
     label: 'Population',
-    weight: 9,
+    weight: 8,
     direction: 'high',
     formula: 'normalize(log10(population))',
   },
   {
     key: 'militaryPower',
     label: 'Military Power',
-    weight: 8,
+    weight: 7,
     direction: 'high',
     formula: 'normalize(Σ units × power weight)',
   },
   {
     key: 'approval',
     label: 'Approval',
-    weight: 6,
+    weight: 5,
     direction: 'high',
     formula: 'normalize(approval)',
   },

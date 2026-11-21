@@ -69,6 +69,8 @@ export type CompositeMetricKey =
   | 'pppPerCapita'
   | 'inflation'
   | 'currency'
+  | 'relations'
+  | 'externalApproval'
   | 'population'
   | 'militaryPower'
   | 'approval'
@@ -176,6 +178,10 @@ export interface CountryStats {
   inflation: number
   /** GDP per capita adjusted for the consumer price level. */
   pppPerCapita: number
+  /** Average foreign relations with the living world, -100 to 100. */
+  averageRelations: number
+  /** External approval standing with the living world, 0 to 100. */
+  worldApproval: number
 }
 
 export interface CurrencyState {
@@ -399,6 +405,8 @@ export interface CountrySnapshot {
   gdpPerCapita: number
   pppPerCapita: number
   currencyGap: number
+  averageRelations: number
+  worldApproval: number
   composite: number
 }
 
@@ -439,6 +447,7 @@ export interface EventEffects {
   moneyPctGdp?: number
   debt?: number
   debtPctGdp?: number
+  clearDebt?: boolean
   approval?: number
   corruption?: number
   security?: number

@@ -48,6 +48,7 @@ import {
   INDUSTRY_ACTION_LABELS,
   mergerCost,
   ministryActionCost,
+  refreshWorldStanding,
   seedHistory,
   pushLog,
   unitPurchasePlan,
@@ -193,6 +194,7 @@ function normalizeGameState(game: GameState): GameState {
       }
     }
   }
+  refreshWorldStanding(game)
   if (
     !game.market ||
     RESOURCE_IDS.some((resourceId) => !game.market[resourceId]) ||
@@ -286,6 +288,7 @@ export const useGame = create<GameStore>()(
         game.turn = 1
         game.actionsLeft = ACTIONS_PER_TURN
         game.eventQueue = ['inauguration']
+        refreshWorldStanding(game)
         seedHistory(game)
         pushLog(
           game,

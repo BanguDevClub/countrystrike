@@ -98,6 +98,10 @@ The game features over 600 handcrafted, thematic events located in `src/game/min
   - `upgrade`: High-tech automation, quantum-secure comms, advanced R&D institutes.
 - **Rarities**: Weighted as `common` (wt: 20), `rare` (wt: 10), `epic` (wt: 4), `legendary` (wt: 1).
 - **Emergency Bailout Requests**: When a rival nation's treasury hits $0M, they send an emergency appeal naming their specific country. Players can grant relief (+35 relations, +5 approval), issue high-interest distress loans, or refuse (triggering heavy sovereign debt surcharges on the broke rival).
+- **Ministry event gates** (`eventCandidates` in `events.ts`): a betrayal event for a ministry is suppressed while that minister's loyalty is above 70; a corruption event is suppressed while that minister's corruption is below 30.
+- **Sovereign auction**: when player debt exceeds 1,000% of GDP, `generateEvents` queues `sovereign_auction` first. Choices clear the debt through receivership, auction state assets, or default, each with heavy social and diplomatic costs.
+- **Misc events**: the core deck includes grey-market formalisation, emigration, a regional infrastructure fund and a digital corridor, alongside the existing core and ministry events.
+- **Passive external approval**: once relations hit 100, external approval rises by 0.2–1.2 per turn depending on Foreign ministry capacity. Campaigns remain the faster route.
 
 ### 3. GDP Growth Engine
 
@@ -135,16 +139,18 @@ The game features over 600 handcrafted, thematic events located in `src/game/min
   - Fiscal balance = levies − subsidies. Consumer trade = export credit − import bill; households pay it, so it affects the current account and FX but not the state budget.
   - The basket feeds GDP (`commerce`, `costOfLiving`, `inflation` drivers), approval, depression, HDI and Gini.
 - **Actions**: `setCommercePolicy` changes one good per action and logs the decision.
+- **Currency tools**: the Commerce page has a two-country comparison (cross rate, inflation, PPP gap, strength edge) and a currency strength ranking. Strength = `100 − 1.6×inflation − 1.2×PPP gap − 0.4×depreciation`.
 - **Inflation**: `stats.inflation` is annualised percent per turn. `inflationTarget` combines monetised deficit, shortage share, basket pressure, demand-pull growth, FX pass-through, credibility and a stabilisation term above 8%.
 - **Currencies**: every country has a `CurrencyState` (`rate`, `fairRate`, `changePct`, `regime`). `updateCurrencies` drifts the PPP fair rate with the damped relative-inflation differential, then mean-reverts the market rate toward fair value with debt/approval/shortage risk premiums and a trade-flow push. Floating/managed/pegged regimes move at different speeds and caps.
-- **Save migration**: `normalizeGameState` fills `stats.inflation`, `stats.pppPerCapita`, `commercePolicy` and `currency` for older saves; `SAVE_VERSION` is 4.
+- **Save migration**: `normalizeGameState` fills `stats.inflation`, `stats.pppPerCapita`, `stats.averageRelations`, `stats.worldApproval`, `commercePolicy` and `currency` for older saves; `SAVE_VERSION` is 5.
 
 ### 6. Composite Score
 
-- **Pillars**: Treasure (14), Debt (12), GDP (10), GDP per capita (9), PPP per capita (9), Inflation (5), Currency gap (4), Population (9), Military power (8), Approval (6), HDI (5), Gini (4), Violence (2), Depression (3). Weights total 100.
+- **Pillars**: Treasure (13), Debt (11), GDP (9), GDP per capita (8), PPP per capita (8), Inflation (4), Currency gap (4), Average relations (5), External approval (4), Population (8), Military power (7), Approval (5), HDI (5), Gini (4), Violence (2), Depression (3). Weights total 100.
 - **Normalization**: min–max across living states; low-is-better pillars are inverted. Treasury, GDP, GDP per capita, PPP per capita and population are log-scaled.
 - **PPP per capita**: `(GDP / population) ÷ (consumer basket index / 100)`. It is stored in `CountryStats`, updated each turn from `computeCommerce`, and captured in every `CountrySnapshot` for history.
 - **Currency gap**: `|FX / fair FX − 1| × 100`, stored in snapshots for the ranking and macro history charts.
+- **World standing**: `refreshWorldStanding` computes `stats.averageRelations` and `stats.worldApproval` for every living state each turn. Pairwise alignment is the mean of the two alignment baselines; the player's baseline is the mean rival alignment. External approval uses the same smoothing over integration approval.
 
 ### 7. Action Costs & Tax Levers
 
