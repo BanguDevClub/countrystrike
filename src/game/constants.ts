@@ -25,7 +25,7 @@ export const GITHUB_URL = 'https://github.com/BanguDevClub/countrystrike'
 export const ACTIONS_PER_TURN = 10
 export const SAVE_KEY = 'countrystrike-save'
 export const PREFS_KEY = 'countrystrike-prefs'
-export const SAVE_VERSION = 5
+export const SAVE_VERSION = 6
 export const HISTORY_LIMIT = 80
 
 export const DEFAULT_SETTINGS: GameSettings = {

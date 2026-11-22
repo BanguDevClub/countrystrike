@@ -10,6 +10,7 @@ import type {
 } from './types'
 import { clamp } from './rng'
 import type { RNG } from './rng'
+import { applyGdpShock } from './economy'
 import { debtLimit, isHostile, resourceFlows, taxBurden } from './selectors'
 import { formatMoney, formatSignedNumber, formatSignedPercent, titleCase } from './format'
 import { MINISTRY_EVENTS, BAILOUT_REQUEST_EVENTS } from './ministryEvents'
@@ -49,7 +50,7 @@ export function applyEventEffects(
   if (effects.clearDebt) {
     const cleared = country.stats.debt
     country.stats.debt = 0
-    country.stats.debtRate = Math.min(country.stats.debtRate, 5)
+    country.stats.debtRate = clamp(country.stats.debtRate, -5, 5)
     lines.push(`Debt cleared: ${formatMoney(cleared)} retired under the sovereign settlement`)
   }
   if (effects.approval !== undefined) {
@@ -65,7 +66,7 @@ export function applyEventEffects(
     lines.push(`Security ${formatSignedNumber(effects.security)}`)
   }
   if (effects.gdpPct !== undefined) {
-    country.stats.gdp = Math.max(1, country.stats.gdp * (1 + effects.gdpPct))
+    applyGdpShock(country, effects.gdpPct)
     lines.push(`GDP ${formatSignedPercent(effects.gdpPct * 100)}`)
   }
   if (effects.tax) {

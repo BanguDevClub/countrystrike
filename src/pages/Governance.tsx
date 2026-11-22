@@ -17,7 +17,7 @@ import {
   averageCorruption,
   combinedModifiers,
   computeBudget,
-  corporateTaxGrowthEffect,
+  corporateTaxCapacityEffect,
   incomeTaxDepressionEffect,
   lafferAtBurden,
   taxBurden,
@@ -45,7 +45,7 @@ const TAX_FIELDS: TaxField[] = [
     max: 100,
     step: 1,
     description:
-      'Taxes business profit. Below 20% it lifts GDP growth; above 20% it drags growth down. Very low rates invite a haven boom.',
+      'Taxes business profit. Below 20% it lifts civil capacity; above 20% it drags capacity down. Very low rates invite a haven boom.',
     icon: 'Factory',
   },
   {
@@ -336,7 +336,7 @@ export function Governance() {
 
       <SectionCard
         title="Tax policy"
-        subtitle="Each applied change costs one action. Corporate tax moves GDP growth; income tax moves depression. The Laffer curve responds immediately."
+        subtitle="Each applied change costs one action. Corporate tax moves civil capacity; income tax moves depression. The Laffer curve responds immediately."
         action={
           <Badge tone="accent" icon="Dices">
             {game.actionsLeft} actions left
@@ -384,10 +384,10 @@ export function Governance() {
                 <p>{field.description}</p>
                 {field.key === 'corporate' && (
                   <span
-                    className={`tax-effect ${corporateTaxGrowthEffect(draft) >= 0 ? 'text-positive' : 'text-negative'}`}
+                    className={`tax-effect ${corporateTaxCapacityEffect(draft) >= 0 ? 'text-positive' : 'text-negative'}`}
                   >
-                    GDP growth {corporateTaxGrowthEffect(draft) >= 0 ? '+' : ''}
-                    {(corporateTaxGrowthEffect(draft) * 100).toFixed(2)}%/turn at {value}%
+                    Civil capacity {corporateTaxCapacityEffect(draft) >= 0 ? '+' : ''}
+                    {(corporateTaxCapacityEffect(draft) * 100).toFixed(2)}% at {value}%
                   </span>
                 )}
                 {field.key === 'income' && (

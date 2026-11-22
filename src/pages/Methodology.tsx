@@ -105,7 +105,7 @@ export function Methodology() {
           ['#prices', 'Market prices'],
           ['#commerce', 'Commerce & basket'],
           ['#currency', 'Inflation & FX'],
-          ['#gdp', 'GDP growth'],
+          ['#gdp', 'GDP composition'],
           ['#fiscal', 'Taxes & Laffer'],
           ['#budget', 'Budget'],
           ['#military', 'Military power'],
@@ -188,12 +188,14 @@ export function Methodology() {
             </p>
             <p>
               The map is generated with a seeded Voronoi partition of each continent. Country GDP
-              starts as population × GDP per capita. Every country receives one commodity endowment;
-              65% also receive a strategic endowment. Non-endowed flows start below consumption, and
-              strategic deposits are completely absent in 30% of non-endowed countries. The setup
-              screen scales the economy: resource prices multiply every reference price, scarcity
-              shrinks reserves and stockpiles, starting treasury and debt shift the opening balance
-              sheet, and starting industry scales extraction and refinement capacity.
+              starts as population × GDP per capita, then is split into industry, commerce and
+              military anchors from the first resource and budget snapshot. Every country receives
+              one commodity endowment; 65% also receive a strategic endowment. Non-endowed flows
+              start below consumption, and strategic deposits are completely absent in 30% of
+              non-endowed countries. The setup screen scales the economy: resource prices multiply
+              every reference price, scarcity shrinks reserves and stockpiles, starting treasury and
+              debt shift the opening balance sheet, and starting industry scales extraction and
+              refinement capacity.
             </p>
           </div>
           <div className="method-formula-col">
@@ -517,36 +519,39 @@ export function Methodology() {
 
       <MethodSection
         id="currency"
-        title="Inflation & currency parity"
-        subtitle="Inflation is fiscal and real. Exchange rates mean-revert toward relative purchasing-power parity, with trade and risk premiums."
+        title="Inflation, deflation & currency parity"
+        subtitle="Every currency launches at 1:1 with the credit. Inflation, the sovereign rate, trade and risk then move the market rate."
       >
         <div className="method-grid">
           <div>
             <p>
-              Inflation is a country statistic in percent per turn. Its target rises with monetised
-              fiscal deficits, commerce shortages, basket pressure, demand-pull growth and last
-              turn's depreciation. Approval, security and the Finance budget build credibility and
-              pull it down. The actual rate adapts toward the target each turn.
+              Every country's currency starts at <strong>1.00 per credit ($)</strong>. It is not
+              pegged there forever: a purchasing-power-parity anchor drifts with the inflation
+              differential against the world average, and the market rate converges toward that
+              anchor plus trade and risk premiums.
             </p>
             <p>
-              Each country has its own currency quoted as local units per credit. A purchasing-power
-              parity anchor drifts with the inflation differential against the world average: a
-              country inflating faster sees its fair rate rise (depreciate). The market rate
-              converges toward fair value plus a risk premium for debt, low approval and shortages,
-              minus an appreciation push from trade surpluses.
+              Inflation rises with monetised deficits, debt service, a positive sovereign rate,
+              commerce shortages, basket pressure, demand-pull growth and currency depreciation. It
+              falls with primary surpluses, a negative sovereign rate, currency appreciation,
+              recession, depression and institutional credibility. When those deflationary forces
+              dominate, the target crosses below zero and prices fall.
             </p>
             <p>
-              Floating regimes converge fastest and are capped at 12% per turn; managed rates at 6%;
-              pegged rates at 1%. The Commerce screen shows every country's rate, last move,
-              inflation, fair rate and PPP gap.
+              The sovereign rate is a policy lever from <strong>−5% to 20%</strong>. A negative rate
+              turns debt interest into carry income and pushes inflation down; a high positive rate
+              raises debt service and inflation, while widening the lender limit. Floating regimes
+              converge fastest and are capped at 12% per turn; managed rates at 6%; pegged rates at
+              1%. The Commerce screen charts the exchange rate, inflation, world inflation and the
+              sovereign rate over time.
             </p>
           </div>
           <div className="method-formula-col">
             <Formula
-              tex={String.raw`\pi^*=2.5+45m\max\left(0,\frac{-\text{net}}{\text{GDP}}\right)+14\,\text{shortage}+0.02\max(0,\text{CPI}-100)+20\max(0,g)+0.12\max(0,\Delta FX)-1.1C-0.3\max(0,\pi-8)`}
+              tex={String.raw`\pi^*=2.5+40m\max\left(0,\frac{-\text{net}}{\text{GDP}}\right)-35\max\left(0,\frac{\text{net}}{\text{GDP}}\right)+22\frac{D\,r/100}{\text{GDP}}+0.12r+14\,\text{shortage}+0.02\max(0,\text{CPI}-100)+20g+0.12\Delta FX+0.25\min(0,\pi)-12\max(0,-g)-0.03\max(0,\text{depression}-12)-1.1C-0.3\max(0,\pi-8)`}
             />
             <Formula
-              tex={String.raw`\pi_{t+1}=\operatorname{clamp}\left(\operatorname{lerp}(\pi_t,\pi^*,0.22)+\varepsilon,-5,80\right)`}
+              tex={String.raw`\pi_{t+1}=\operatorname{clamp}\left(\operatorname{lerp}(\pi_t,\pi^*,0.22)+\varepsilon,-15,80\right)`}
             />
             <Formula tex={String.raw`\pi_w=\frac{1}{N}\sum_i \pi_i`} />
             <Formula
@@ -556,7 +561,7 @@ export function Methodology() {
               tex={String.raw`\text{target}=F_{t+1}\left(1+\text{risk}+\text{trade}\right)`}
             />
             <Formula
-              tex={String.raw`\text{risk}=\max\left(0,\frac{\text{debt/GDP}-60}{100}\right)0.02+\max\left(0,\frac{45-\text{approval}}{100}\right)0.03+0.015\,\text{shortage}`}
+              tex={String.raw`\text{risk}=\max\left(0,\frac{\text{debt/GDP}-60}{100}\right)0.02+\max\left(0,\frac{45-\text{approval}}{100}\right)0.03+0.015\,\text{shortage}+0.001\max(0,r)`}
             />
             <Formula
               tex={String.raw`\text{trade}=-0.25\operatorname{clamp}\left(\frac{X-M}{\text{GDP}},-0.08,0.08\right)`}
@@ -567,79 +572,88 @@ export function Methodology() {
             <Formula tex={String.raw`\text{PPP gap}=\left(\frac{FX}{F}-1\right)100\%`} />
             <Formula tex={String.raw`1\,\text{unit of }A=\frac{FX_B}{FX_A}\,\text{units of }B`} />
             <Formula
-              tex={String.raw`\text{strength}=100-1.6\pi-1.2|\text{PPP gap}|-0.4\max(0,\Delta FX)`}
+              tex={String.raw`\text{strength}=100-1.6\max(0,\pi)-1.2|\text{PPP gap}|-0.4\max(0,\Delta FX)`}
             />
           </div>
         </div>
         <p>
           <strong>m</strong> = 1.8 when the treasury is at zero (monetised deficit) and 0.6
-          otherwise. <strong>C</strong> = 0.6 + approval/200 + security/200 + 0.06 × Finance budget
-          level. <strong>s</strong> = 0.24 floating, 0.12 managed, 0.03 pegged. A positive PPP gap
-          means the market rate is weaker than fair value.
+          otherwise. <strong>D</strong> is outstanding debt, <strong>r</strong> the sovereign rate
+          (signed; negative rates reduce debt service and the inflation target). <strong>C</strong>{' '}
+          = 0.6 + approval/200 + security/200 + 0.06 × Finance budget level. <strong>s</strong> =
+          0.24 floating, 0.12 managed, 0.03 pegged. A positive PPP gap means the market rate is
+          weaker than fair value.
         </p>
       </MethodSection>
 
       <MethodSection
         id="gdp"
-        title="GDP growth"
-        subtitle="Resource wealth, deficits, debt and fiscal stress all feed the growth rate every turn."
+        title="GDP composition"
+        subtitle="GDP is the sum of the civil economy (industry and commerce) and the military economy. It never compounds on its own."
       >
         <div className="method-grid">
           <div>
             <p>
-              GDP compounds each turn. The engine decomposes the rate into auditable drivers, shown
-              live in the Budget screen. A resource-heavy economy grows faster; unmet deficits,
-              exhausted reserves, zero treasury and runaway debt drag it down. Surplus production,
-              stockpiles and a funded treasury add positive pressure. The total is normalised to a
-              maximum swing of −50% to +50% per turn, so extreme crises can genuinely reprice an
-              economy.
+              GDP is rebuilt every turn from three sectors, not grown by a multiplier. Industry GDP
+              tracks the value of resource extraction and refinement at market prices. Commerce GDP
+              tracks household final consumption plus net consumer trade. Military GDP tracks
+              defense outlays: the Defense ministry budget plus military upkeep.
             </p>
             <p>
-              Debt becomes a growth penalty above 60% of GDP and accelerates above 120%. A treasury
-              at or below zero subtracts 0.5% per turn; a cash reserve below 1% of GDP subtracts
-              0.2%. Each resource in shortage or with less than four turns of stock cover subtracts
-              a further share.
+              Each sector is measured against the output anchor captured at world generation, so a
+              production collapse or a consumption boom changes GDP immediately. A civil capacity
+              factor scales industry and commerce for debt, fiscal pressure, shortages, inflation or
+              deflation, corruption, tax burden and social stress. Military GDP is not scaled by
+              that factor; it moves with actual defense spending.
             </p>
             <p>
-              Corporate tax is a direct growth lever. A 20% rate is neutral; every point below adds
-              0.08% growth per turn and every point above subtracts the same, capped at ±1%. A lower
-              rate can still lose growth if it starves the budget, so the fiscal trade-off matters.
+              There is no autonomous base expansion and no random growth term. Industry upgrades and
+              breakthrough advancements raise GDP only through the extra production they create.
+              Event and merger shocks scale the sector anchors permanently, so the next turn keeps
+              the shock without introducing a separate growth loop. The Budget screen charts the
+              three components turn by turn.
             </p>
           </div>
           <div className="method-formula-col">
+            <Formula tex={String.raw`\text{GDP}=I+C+M`} />
+            <Formula tex={String.raw`I=I_0\frac{\text{production value}}{P_0}\rho`} />
             <Formula
-              tex={String.raw`g_t=\operatorname{clamp}\left(0.006+\textstyle\sum_i g_i+\varepsilon,\ -0.50,\ 0.50\right)`}
+              tex={String.raw`C=C_0\frac{\text{household consumption}+\text{net consumer trade}}{H_0}\rho`}
+            />
+            <Formula tex={String.raw`M=M_0\frac{\text{Defense ministry}+\text{upkeep}}{U_0}`} />
+            <Formula
+              tex={String.raw`\rho=\operatorname{clamp}\left(\frac{1+\sum_i k_i}{1+\sum_i k_{i,0}},0.35,2.5\right)`}
             />
             <Formula
-              tex={String.raw`g_{\text{industry}}=\min(0.015,\ \text{industry levels}\times 0.00015)`}
+              tex={String.raw`k_{\text{debt}}=-\frac{\max(0,\text{debt/GDP}\%-60)}{100}0.06-\frac{\max(0,\text{debt/GDP}\%-120)}{100}0.08`}
             />
             <Formula
-              tex={String.raw`g_{\text{resource}}=\operatorname{clamp}\left(\frac{\text{production value}}{\text{GDP}},0,0.8\right)\times 0.03`}
+              tex={String.raw`k_{\text{fiscal}}=0.5\operatorname{clamp}\left(\frac{\text{net}}{\text{GDP}},-0.06,0.06\right)`}
             />
             <Formula
-              tex={String.raw`g_{\text{surplus}}=0.02\cdot\frac{1}{8}\sum_r \max\left(0,\frac{\text{balance}_r}{\max(1,\text{consumption}_r)}\right)`}
+              tex={String.raw`k_{\text{corp}}=\operatorname{clamp}((20-C_{\text{tax}})\times 0.002,-0.03,0.03)`}
             />
             <Formula
-              tex={String.raw`g_{\text{debt}}=-\frac{\max(0,\text{debt/GDP}\% - 60)}{100}(0.008)-\frac{\max(0,\text{debt/GDP}\%-120)}{100}(0.012)`}
+              tex={String.raw`k_{\text{commerce}}=\operatorname{clamp}((\text{availability}-0.82)0.15+(\text{affordability}-1.2)0.03,-0.06,0.06)`}
             />
             <Formula
-              tex={String.raw`g_{\text{shortage}}=-\frac{\text{resources in shortage}}{8}\times 0.009`}
+              tex={String.raw`k_{\text{cost}}=-0.3\operatorname{clamp}\left(\frac{\text{CPI}-100}{100},-0.15,0.35\right)`}
             />
             <Formula
-              tex={String.raw`g_{\text{corp}}=\operatorname{clamp}\left((20-C)\times 0.0008,\ -0.01,\ 0.01\right)`}
+              tex={String.raw`k_{\text{inflation}}=-0.35\operatorname{clamp}\left(\frac{\pi-4}{100},0,0.4\right)`}
             />
             <Formula
-              tex={String.raw`g_{\text{commerce}}=\operatorname{clamp}((\text{availability}-0.82)0.02+(\text{affordability}-1.2)0.004,\ -0.012,\ 0.012)`}
+              tex={String.raw`k_{\text{deflation}}=-0.5\operatorname{clamp}\left(\frac{-1-\pi}{100},0,0.3\right)`}
             />
-            <Formula
-              tex={String.raw`g_{\text{cost}}=-\operatorname{clamp}\left(\frac{\text{CPI}-100}{100},-0.15,0.35\right)0.04`}
-            />
-            <Formula
-              tex={String.raw`g_{\text{inflation}}=-\operatorname{clamp}\left(\frac{\pi-4}{100},0,0.4\right)0.05`}
-            />
-            <Formula tex={String.raw`\text{GDP}_{t+1}=\max(100,\ \text{GDP}_t(1+g_t))`} />
+            <Formula tex={String.raw`\text{Civil}=I+C,\qquad \text{Military}=M`} />
           </div>
         </div>
+        <p>
+          <strong>I₀, C₀, M₀</strong> are the sector GDP anchors created at world generation;{' '}
+          <strong>P₀, H₀, U₀</strong> are the matching output anchors. <strong>ρ</strong> is civil
+          capacity relative to its starting value. Summing the three displayed components always
+          returns GDP.
+        </p>
       </MethodSection>
 
       <MethodSection
@@ -661,9 +675,9 @@ export function Methodology() {
               taxes are policy levers; each applied change costs one action.
             </p>
             <p>
-              Corporate tax also moves GDP growth directly: below 20% it adds growth, above 20% it
-              subtracts it. Income tax moves depression in the same direction: below 20% households
-              feel relief, above 20% depression deepens.
+              Corporate tax moves civil capacity directly: below 20% it raises the capacity factor,
+              above 20% it lowers it. Income tax moves depression in the same direction: below 20%
+              households feel relief, above 20% depression deepens.
             </p>
           </div>
           <div className="method-formula-col">
@@ -717,7 +731,8 @@ export function Methodology() {
         <p>
           Public services cost 8% of GDP each turn. If the treasury would go negative, the
           difference is added to debt automatically. Debt interest is charged on the outstanding
-          stock. The lender limit is{' '}
+          stock; at a negative sovereign rate the interest line becomes carry income and reduces
+          expenses. The lender limit is{' '}
           <Formula
             tex={String.raw`\text{GDP}\cdot\left(0.55+\frac{r}{25}\right)\cdot\operatorname{clamp}\left(0.6+\frac{\text{approval}}{150},0.55,1.25\right)`}
             block={false}

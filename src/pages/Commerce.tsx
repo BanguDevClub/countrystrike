@@ -1,4 +1,16 @@
 import { useEffect, useMemo, useState } from 'react'
+import {
+  CartesianGrid,
+  Legend,
+  Line,
+  LineChart,
+  ReferenceArea,
+  ReferenceLine,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from 'recharts'
 import { COMMERCE_CATEGORIES, COMMERCE_GOODS, COMMERCE_GOOD_IDS } from '../game/constants'
 import type { CommerceCategory, CommerceGoodId, Country } from '../game/types'
 import { useGame, selectPlayer } from '../state/gameStore'
@@ -7,10 +19,10 @@ import {
   computeCommerce,
   currencyGap,
   currencyStrength,
-  gdpGrowthDrivers,
   inflationTarget,
   resourceFlows,
 } from '../game/selectors'
+import { gdpCapacityDrivers } from '../game/economy'
 import {
   formatDecimal,
   formatMoney,
@@ -21,7 +33,7 @@ import {
   formatSignedNumber,
   formatSignedPercent,
 } from '../game/format'
-import { Badge, PageHeader, ProgressBar, SectionCard, StatTile } from '../components/ui'
+import { Badge, EmptyState, PageHeader, ProgressBar, SectionCard, StatTile } from '../components/ui'
 import { Icon } from '../components/Icon'
 import { Flag } from '../components/Flag'
 
@@ -63,6 +75,7 @@ export function Commerce() {
   const setPage = useGame((state) => state.setPage)
   const [filter, setFilter] = useState<CommerceFilter>('all')
   const [compareId, setCompareId] = useState('')
+  const [historyRange, setHistoryRange] = useState(20)
   const [draft, setDraft] = useState<Record<CommerceGoodId, number>>(() =>
     player ? policyFrom(player) : ({} as Record<CommerceGoodId, number>),
   )
@@ -103,8 +116,8 @@ export function Commerce() {
   const misalignment = currency.fairRate > 0 ? (currency.rate / currency.fairRate - 1) * 100 : 0
   const visibleGoods =
     filter === 'all' ? COMMERCE_GOODS : COMMERCE_GOODS.filter((good) => good.category === filter)
-  const drivers = gdpGrowthDrivers(player, flows, budget, commerce).filter((driver) =>
-    ['commerce', 'costOfLiving', 'inflation'].includes(driver.key),
+  const drivers = gdpCapacityDrivers(player, flows, budget, commerce).filter((driver) =>
+    ['commerce', 'costOfLiving', 'inflation', 'deflation', 'shortages'].includes(driver.key),
   )
   const parityRows = [...liveCountries].sort(
     (a, b) => currencyStrength(b) - currencyStrength(a) || a.name.localeCompare(b.name),
@@ -124,6 +137,28 @@ export function Commerce() {
   const playerCurrencyStrength = currencyStrength(player)
   const compareCurrencyStrength = currencyStrength(compareCountry)
   const strengthDiff = playerCurrencyStrength - compareCurrencyStrength
+  const realSovereignRate = player.stats.debtRate - player.stats.inflation
+
+  const history = game.history ?? []
+  const visibleHistory = historyRange === 0 ? history : history.slice(-historyRange)
+  const macroHistory = visibleHistory.map((point) => {
+    const own = point.countries[player.id]
+    const other = point.countries[compareCountry.id]
+    const snapshots = Object.values(point.countries)
+    const snapshotWorldInflation =
+      snapshots.length > 0
+        ? snapshots.reduce((total, snapshot) => total + snapshot.inflation, 0) / snapshots.length
+        : 0
+    return {
+      turn: point.turn,
+      playerRate: own?.fxRate ?? point.fxRate ?? 1,
+      compareRate: other?.fxRate ?? 1,
+      playerInflation: own?.inflation ?? point.inflation ?? 0,
+      compareInflation: other?.inflation ?? 0,
+      worldInflation: point.worldInflation ?? snapshotWorldInflation,
+      debtRate: point.debtRate ?? player.stats.debtRate,
+    }
+  })
 
   return (
     <div className="page">
@@ -151,14 +186,18 @@ export function Commerce() {
           }
         />
         <StatTile
-          label="Inflation"
+          label={player.stats.inflation < 0 ? 'Deflation' : 'Inflation'}
           value={`${formatDecimal(player.stats.inflation, 1)}%`}
-          hint={`Settling toward ${formatDecimal(expectedInflation, 1)}%`}
+          hint={
+            player.stats.inflation < 0
+              ? `Target ${formatDecimal(expectedInflation, 1)}% · prices falling`
+              : `Settling toward ${formatDecimal(expectedInflation, 1)}%`
+          }
           icon="TrendingUp"
           tone={
             player.stats.inflation > 12
               ? 'negative'
-              : player.stats.inflation > 6
+              : player.stats.inflation > 6 || player.stats.inflation < -1
                 ? 'warning'
                 : 'positive'
           }
@@ -166,7 +205,7 @@ export function Commerce() {
         <StatTile
           label="Currency parity"
           value={`${formatNumber(currency.rate, currency.rate < 1 ? 3 : 2)} ${currency.code}`}
-          hint={`1 credit · fair ${formatNumber(currency.fairRate, 2)} · ${formatSignedPercent(misalignment)} vs PPP`}
+          hint={`Launches at 1.00 $ · fair ${formatNumber(currency.fairRate, 2)} · ${formatSignedPercent(misalignment)} vs PPP`}
           icon="Coins"
           tone={Math.abs(misalignment) > 12 ? 'warning' : 'accent'}
         />
@@ -182,7 +221,7 @@ export function Commerce() {
       <div className="commerce-top-grid">
         <SectionCard
           title="Currency & parity"
-          subtitle="Household prices are quoted in local currency. The market rate mean-reverts toward a purchasing-power-parity fair value."
+          subtitle="Every currency launches at 1:1 parity with the game credit ($). Market rates then diverge toward purchasing-power parity as inflation and trade balances differ."
           action={<Badge tone="accent">{currency.regime}</Badge>}
         >
           <div className="commerce-currency-hero">
@@ -191,7 +230,7 @@ export function Commerce() {
               <strong>
                 {formatNumber(currency.rate, currency.rate < 1 ? 3 : 2)} {currency.code}
               </strong>
-              <small>local units per 1 credit</small>
+              <small>local units per 1 credit ($)</small>
             </div>
             <Badge tone={currency.changePct >= 0 ? 'negative' : 'positive'} icon="TrendingUp">
               {formatSignedPercent(currency.changePct)} last turn
@@ -220,17 +259,32 @@ export function Commerce() {
               </strong>
               <small>exports − imports</small>
             </span>
+            <span>
+              <small>Sovereign rate</small>
+              <strong className={player.stats.debtRate < 0 ? 'text-positive' : ''}>
+                {formatDecimal(player.stats.debtRate, 1)}%
+              </strong>
+              <small>debt service</small>
+            </span>
+            <span>
+              <small>Real sovereign rate</small>
+              <strong className={realSovereignRate < 0 ? 'text-warning' : ''}>
+                {formatDecimal(realSovereignRate, 1)}%
+              </strong>
+              <small>rate − inflation</small>
+            </span>
           </div>
           <p className="formula-note">
-            Inflation above the world average depreciates the currency. Trade surpluses, approval
-            and low debt support it. Pegged regimes move slowly; floating regimes absorb shocks
-            faster.
+            Inflation above the world average depreciates the currency; deflation appreciates it.
+            Trade surpluses, approval and low debt support it. A negative sovereign rate turns
+            interest into income and pulls inflation down. Pegged regimes move slowly; floating
+            regimes absorb shocks faster.
           </p>
         </SectionCard>
 
         <SectionCard
           title="Basket & transmission"
-          subtitle="Commerce feeds growth, approval, depression, HDI and inequality through the same snapshot used by the turn engine."
+          subtitle="Commerce feeds civil capacity, approval, depression, HDI and inequality through the same snapshot used by the turn engine."
           action={
             <Badge tone={commerce.shortageShare > 0.25 ? 'negative' : 'positive'}>
               {formatPercent(commerce.shortageShare * 100)} unmet
@@ -280,7 +334,7 @@ export function Commerce() {
               <div key={driver.key}>
                 <span>{driver.label}</span>
                 <strong className={driver.value >= 0 ? 'text-positive' : 'text-negative'}>
-                  {formatSignedPercent(driver.value * 100, 2)} GDP
+                  {formatSignedPercent(driver.value * 100, 2)} potential
                 </strong>
               </div>
             ))}
@@ -305,6 +359,193 @@ export function Commerce() {
           </div>
         </SectionCard>
       </div>
+
+      <SectionCard
+        className="chart-card"
+        title="Currency & inflation history"
+        subtitle="The credit is the numéraire: 1.00 is launch parity. Below zero on the inflation chart is deflation. The sovereign rate is shown against inflation to expose the real debt burden."
+        action={
+          <select
+            className="select select-small"
+            value={historyRange}
+            onChange={(event) => setHistoryRange(Number(event.target.value))}
+            aria-label="Currency history range"
+          >
+            <option value={10}>Last 10 turns</option>
+            <option value={25}>Last 25 turns</option>
+            <option value={0}>All turns</option>
+          </select>
+        }
+      >
+        {macroHistory.length < 2 ? (
+          <EmptyState
+            icon="ChartLine"
+            title="Currency history needs two turns"
+            body="End a turn to chart exchange-rate parity, inflation and the sovereign rate."
+          />
+        ) : (
+          <div className="commerce-history-grid">
+            <div className="macro-chart">
+              <div className="macro-chart-head">
+                <span>Exchange rate · local units per 1 $</span>
+                <strong>{formatNumber(currency.rate, 3)}</strong>
+              </div>
+              <ResponsiveContainer width="100%" height={210}>
+                <LineChart data={macroHistory} margin={{ top: 8, right: 8, bottom: 0, left: 0 }}>
+                  <CartesianGrid
+                    stroke="var(--chart-grid)"
+                    strokeDasharray="3 6"
+                    vertical={false}
+                  />
+                  <XAxis
+                    dataKey="turn"
+                    tick={{ fill: 'var(--muted)', fontSize: 10 }}
+                    axisLine={false}
+                    tickLine={false}
+                    tickFormatter={(value) => `T${value}`}
+                  />
+                  <YAxis
+                    tick={{ fill: 'var(--muted)', fontSize: 10 }}
+                    axisLine={false}
+                    tickLine={false}
+                    tickFormatter={(value) => formatNumber(Number(value), 2)}
+                    width={52}
+                  />
+                  <Tooltip
+                    contentStyle={{
+                      background: 'var(--surface)',
+                      border: '1px solid var(--border)',
+                      borderRadius: 12,
+                      color: 'var(--fg)',
+                      fontSize: 12,
+                    }}
+                    labelFormatter={(label) => `Turn ${label}`}
+                    formatter={(value, name) => [
+                      `${formatNumber(Number(value), 3)} per $`,
+                      String(name),
+                    ]}
+                  />
+                  <Legend wrapperStyle={{ fontSize: 11, color: 'var(--muted)' }} />
+                  <ReferenceLine
+                    y={1}
+                    stroke="var(--muted)"
+                    strokeDasharray="4 4"
+                    label={{
+                      value: '1:1 launch parity',
+                      fill: 'var(--muted)',
+                      fontSize: 10,
+                      position: 'insideTopLeft',
+                    }}
+                  />
+                  <Line
+                    type="monotone"
+                    dataKey="playerRate"
+                    name={`${player.currency.code} (you)`}
+                    stroke="var(--c1)"
+                    strokeWidth={2.4}
+                    dot={macroHistory.length <= 3}
+                  />
+                  <Line
+                    type="monotone"
+                    dataKey="compareRate"
+                    name={`${compareCountry.currency.code} (compare)`}
+                    stroke="var(--c2)"
+                    strokeWidth={1.8}
+                    dot={false}
+                  />
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
+
+            <div className="macro-chart">
+              <div className="macro-chart-head">
+                <span>Inflation & sovereign rate</span>
+                <strong className={player.stats.inflation < 0 ? 'text-warning' : 'text-positive'}>
+                  {formatSignedNumber(player.stats.inflation, 1)}%
+                </strong>
+              </div>
+              <ResponsiveContainer width="100%" height={210}>
+                <LineChart data={macroHistory} margin={{ top: 8, right: 8, bottom: 0, left: 0 }}>
+                  <CartesianGrid
+                    stroke="var(--chart-grid)"
+                    strokeDasharray="3 6"
+                    vertical={false}
+                  />
+                  <XAxis
+                    dataKey="turn"
+                    tick={{ fill: 'var(--muted)', fontSize: 10 }}
+                    axisLine={false}
+                    tickLine={false}
+                    tickFormatter={(value) => `T${value}`}
+                  />
+                  <YAxis
+                    tick={{ fill: 'var(--muted)', fontSize: 10 }}
+                    axisLine={false}
+                    tickLine={false}
+                    tickFormatter={(value) => `${formatNumber(Number(value), 0)}%`}
+                    width={52}
+                  />
+                  <Tooltip
+                    contentStyle={{
+                      background: 'var(--surface)',
+                      border: '1px solid var(--border)',
+                      borderRadius: 12,
+                      color: 'var(--fg)',
+                      fontSize: 12,
+                    }}
+                    labelFormatter={(label) => `Turn ${label}`}
+                    formatter={(value, name) => [
+                      `${formatSignedNumber(Number(value), 1)}%`,
+                      String(name),
+                    ]}
+                  />
+                  <Legend wrapperStyle={{ fontSize: 11, color: 'var(--muted)' }} />
+                  <ReferenceArea y1={-15} y2={0} fill="var(--error)" fillOpacity={0.06} />
+                  <ReferenceLine y={0} stroke="var(--error)" strokeDasharray="4 4" />
+                  <Line
+                    type="monotone"
+                    dataKey="playerInflation"
+                    name={`${player.code} inflation`}
+                    stroke="var(--c1)"
+                    strokeWidth={2.4}
+                    dot={macroHistory.length <= 3}
+                  />
+                  <Line
+                    type="monotone"
+                    dataKey="compareInflation"
+                    name={`${compareCountry.code} inflation`}
+                    stroke="var(--c2)"
+                    strokeWidth={1.8}
+                    dot={false}
+                  />
+                  <Line
+                    type="monotone"
+                    dataKey="worldInflation"
+                    name="World average"
+                    stroke="var(--muted)"
+                    strokeWidth={1.4}
+                    strokeDasharray="4 4"
+                    dot={false}
+                  />
+                  <Line
+                    type="monotone"
+                    dataKey="debtRate"
+                    name="Sovereign rate"
+                    stroke="var(--c3)"
+                    strokeWidth={1.6}
+                    dot={false}
+                  />
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
+        )}
+        <div className="chart-footnote">
+          <Icon name="Info" size={13} /> A rate above 1.00 means the local currency weakened against
+          the credit. Deflation appreciates it. The sovereign rate is the interest rate on
+          outstanding debt; negative values are carry income for the state.
+        </div>
+      </SectionCard>
 
       <SectionCard
         title="Citizen checkout"

@@ -7,7 +7,6 @@ import {
   GOVERNMENT_BY_ID,
   MINISTRIES,
   MINISTRY_COST_FACTORS,
-  MINISTRY_IDS,
   RESOURCE_BY_ID,
   RESOURCE_IDS,
   TRAIT_BY_ID,
@@ -135,9 +134,9 @@ export function taxBurden(taxes: TaxRates): number {
   return taxes.corporate * 0.35 + taxes.income * 0.35 + taxes.tariff * 0.05 + taxes.royalty * 0.25
 }
 
-/** Corporate tax competitiveness: 20% is neutral, lower rates lift GDP growth, higher rates drag it. */
-export function corporateTaxGrowthEffect(taxes: TaxRates): number {
-  return clamp((20 - taxes.corporate) * 0.0008, -0.01, 0.01)
+/** Corporate tax competitiveness: 20% is neutral, lower rates lift civil capacity, higher rates drag it. */
+export function corporateTaxCapacityEffect(taxes: TaxRates): number {
+  return clamp((20 - taxes.corporate) * 0.002, -0.03, 0.03)
 }
 
 /** Income tax pressure on households: 20% is neutral, low rates ease depression, high rates deepen it. */
@@ -678,7 +677,12 @@ export function computeCommerce(
   }
 }
 
-/** Expected inflation from deficit monetisation, shortages, basket pressure and FX pass-through. */
+/**
+ * Expected inflation from deficit monetisation, debt service, the sovereign
+ * rate, shortages, basket pressure, output growth and FX pass-through.
+ * Surpluses, negative rates, appreciation and demand collapse can all push the
+ * target below zero into deflation.
+ */
 export function inflationTarget(
   country: Country,
   commerce: CommerceSnapshot,
@@ -687,167 +691,34 @@ export function inflationTarget(
 ): number {
   const gdp = Math.max(1, country.stats.gdp)
   const deficitShare = Math.max(0, -budget.net / gdp)
+  const surplusShare = Math.max(0, budget.net / gdp)
   const monetisation = country.stats.treasury <= 0 ? 1.8 : 0.6
   const financeLevel = BUDGET_MULTIPLIERS[country.ministries.finance.budget]
   const credibility =
     0.6 + country.stats.approval / 200 + country.stats.security / 200 + financeLevel * 0.06
-  const fxPassThrough = clamp(country.currency?.changePct ?? 0, 0, 15) * 0.12
+  const fxChange = clamp(country.currency?.changePct ?? 0, -15, 15)
+  const fxPassThrough = fxChange * 0.12
+  const debtService = (country.stats.debt * country.stats.debtRate) / 100 / gdp
+  const currentInflation = country.stats.inflation ?? 0
+  const deflationExpectation = Math.min(0, currentInflation) * 0.25
+  const demandDrag = Math.max(0, -growth) * 12
+  const depressionDrag = Math.max(0, (country.stats.depression ?? 0) - 12) * 0.03
   const target =
     2.5 +
-    deficitShare * 45 * monetisation +
+    deficitShare * 40 * monetisation -
+    surplusShare * 35 +
+    debtService * 22 +
+    country.stats.debtRate * 0.12 +
     commerce.shortageShare * 14 +
     Math.max(0, commerce.basketIndex - 100) * 0.02 +
-    Math.max(0, growth) * 20 +
-    fxPassThrough -
+    growth * 20 +
+    fxPassThrough +
+    deflationExpectation -
+    demandDrag -
+    depressionDrag -
     credibility * 1.1 -
-    Math.max(0, (country.stats.inflation ?? 0) - 8) * 0.3
-  return roundTo(clamp(target, -3, 45), 2)
-}
-
-export interface GdpDriver {
-  key: string
-  label: string
-  value: number
-}
-
-/**
- * Turn growth decomposed into the forces the player can actually influence.
- * The engine adds a small random term on top; everything else is auditable.
- */
-export function gdpGrowthDrivers(
-  country: Country,
-  flows: Record<ResourceId, ResourceFlow>,
-  budget: BudgetBreakdown,
-  commerce?: CommerceSnapshot,
-): GdpDriver[] {
-  const market = commerce ?? computeCommerce(country, flows)
-  const modifiers = combinedModifiers(country)
-  const gdp = Math.max(1, country.stats.gdp)
-  const highBudgets = MINISTRY_IDS.filter((id) => country.ministries[id].budget === 'high').length
-  const lowBudgets = MINISTRY_IDS.filter((id) => country.ministries[id].budget === 'low').length
-  const totalIndustryLevel = RESOURCE_IDS.reduce(
-    (total, id) =>
-      total +
-      (country.resources[id]?.extractionLevel ?? 0) +
-      (country.resources[id]?.refinementLevel ?? 0),
-    0,
-  )
-  const totalAdvances = RESOURCE_IDS.reduce(
-    (total, id) =>
-      total +
-      (country.resources[id]?.advances ?? 0) * 2 +
-      (country.resources[id]?.researchLevel ?? 0),
-    0,
-  )
-  const resourceValue = resourceValuation(flows).productionValue
-  const resourceShare = clamp(resourceValue / gdp, 0, 0.8)
-
-  let surplusScore = 0
-  let stockCover = 0
-  let reserveStress = 0
-  let shortageCount = 0
-  for (const id of RESOURCE_IDS) {
-    const flow = flows[id]
-    surplusScore += Math.min(1, Math.max(0, flow.finalBalance / Math.max(1, flow.consumption)))
-    stockCover += clamp(flow.stock / Math.max(0.1, flow.consumption), 0, 6) / 6
-    if (flow.reserveRunway != null) {
-      reserveStress += clamp(1 - flow.reserveRunway / 20, 0, 1)
-    }
-    if (flow.shortage > 0 || (flow.finalBalance < 0 && (flow.stockRunway ?? 99) < 4)) {
-      shortageCount += 1
-    }
-  }
-  surplusScore /= RESOURCE_IDS.length
-  stockCover /= RESOURCE_IDS.length
-  reserveStress /= RESOURCE_IDS.length
-
-  const debtRatio = debtToGdp(country)
-  const treasuryRatio = country.stats.treasury / gdp
-  const netRatio = budget.net / gdp
-  const burden = budget.taxBurden
-  const debtBurden = clamp(
-    -(Math.max(0, debtRatio - 60) / 100) * 0.008 - (Math.max(0, debtRatio - 120) / 100) * 0.012,
-    -0.25,
-    0,
-  )
-  const treasuryStress =
-    country.stats.treasury <= 0
-      ? -0.005
-      : treasuryRatio < 0.01
-        ? -0.002
-        : treasuryRatio > 0.2
-          ? 0.001
-          : 0
-
-  return [
-    { key: 'base', label: 'Base expansion', value: 0.006 },
-    {
-      key: 'industry',
-      label: 'Industrial scale',
-      value: Math.min(0.015, totalIndustryLevel * 0.00015),
-    },
-    { key: 'advances', label: 'Technology advances', value: totalAdvances * 0.0008 },
-    {
-      key: 'military',
-      label: 'Military demand',
-      value: Math.min(0.015, Math.log10(Math.max(1, militaryPower(country))) * 0.0015),
-    },
-    { key: 'resourceSector', label: 'Resource sector', value: resourceShare * 0.03 },
-    { key: 'surplus', label: 'Resource surplus', value: surplusScore * 0.02 },
-    { key: 'stock', label: 'Stock buffers', value: stockCover * 0.003 },
-    {
-      key: 'shortages',
-      label: 'Shortages & deficits',
-      value: -(shortageCount / RESOURCE_IDS.length) * 0.009,
-    },
-    { key: 'depletion', label: 'Reserve depletion', value: -reserveStress * 0.005 },
-    {
-      key: 'fiscal',
-      label: 'Fiscal balance',
-      value: clamp(netRatio, -0.06, 0.06) * 0.12,
-    },
-    { key: 'debt', label: 'Debt burden', value: debtBurden },
-    { key: 'treasury', label: 'Treasury reserve', value: treasuryStress },
-    {
-      key: 'tax',
-      label: 'Tax burden',
-      value: -Math.max(0, burden - 45) * 0.00022,
-    },
-    {
-      key: 'corporateTax',
-      label: 'Corporate tax competitiveness',
-      value: corporateTaxGrowthEffect(country.taxes),
-    },
-    {
-      key: 'commerce',
-      label: 'Consumer commerce',
-      value: market.commerceGrowth,
-    },
-    {
-      key: 'costOfLiving',
-      label: 'Cost of living',
-      value: market.costOfLivingGrowth,
-    },
-    {
-      key: 'inflation',
-      label: 'Inflation drag',
-      value: market.inflationGrowth,
-    },
-    {
-      key: 'corruption',
-      label: 'Corruption drag',
-      value: -(country.stats.corruption / 100) * 0.004,
-    },
-    {
-      key: 'policy',
-      label: 'Traits & cabinet',
-      value: (modifiers.growth ?? 0) * 0.25 + highBudgets * 0.0008 - lowBudgets * 0.0008,
-    },
-  ]
-}
-
-export function gdpGrowthTotal(drivers: GdpDriver[]): number {
-  return drivers.reduce((total, driver) => total + driver.value, 0)
+    Math.max(0, currentInflation - 8) * 0.3
+  return roundTo(clamp(target, -12, 45), 2)
 }
 
 export function effectiveTaxCollection(country: Country): number {
@@ -986,9 +857,12 @@ export function computeBudget(
     },
     {
       key: 'interest',
-      label: 'Debt interest',
+      label: country.stats.debtRate < 0 ? 'Debt carry income' : 'Debt interest',
       amount: interest,
-      hint: `${country.stats.debtRate.toFixed(1)}% on outstanding debt`,
+      hint:
+        country.stats.debtRate < 0
+          ? `${country.stats.debtRate.toFixed(1)}% negative rate: lenders pay a carry charge`
+          : `${country.stats.debtRate.toFixed(1)}% on outstanding debt`,
     },
     {
       key: 'imports',

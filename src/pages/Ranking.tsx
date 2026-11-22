@@ -348,7 +348,7 @@ export function Ranking() {
   )
 
   return (
-    <div className="page">
+    <div className="page ranking-page">
       <PageHeader page="ranking">
         <Badge tone="accent" icon="Trophy">
           Composite score · 0–100
@@ -578,7 +578,7 @@ export function Ranking() {
       <SectionCard
         className="table-card ranking-table-card"
         title="The world table"
-        subtitle={`${filteredRows.length} of ${rows.length} states match the filters. Click any row for its dossier.`}
+        subtitle={`${filteredRows.length} of ${rows.length} states match the filters. Click any row for its dossier; scroll sideways for every pillar.`}
         action={
           <div className="ranking-filters">
             <div className="search-field">
@@ -785,6 +785,7 @@ export function Ranking() {
       </SectionCard>
 
       <SectionCard
+        className="ranking-methodology-card"
         title="Composite methodology"
         subtitle="The score is a weighted, normalized view of the same table. Hover or expand the Methodology page for the full formulas."
         action={

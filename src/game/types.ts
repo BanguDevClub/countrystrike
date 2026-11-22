@@ -161,9 +161,52 @@ export interface ResourceState {
   researchBonus?: number
 }
 
+/**
+ * Baseline sector activity captured at world generation. GDP is rebuilt from
+ * these anchors every turn, so the total moves only when industry, commerce or
+ * military activity moves.
+ */
+export interface EconomyBase {
+  /** Industrial gross output at baseline, in millions of credits. */
+  industryOutput: number
+  /** Household consumption plus net consumer trade at baseline, in millions. */
+  commerceOutput: number
+  /** Defense outlays (upkeep plus the Defense ministry) at baseline. */
+  militaryOutput: number
+  /** GDP attributed to each sector at baseline, in millions. */
+  industryGdp: number
+  commerceGdp: number
+  militaryGdp: number
+  /** Civil capacity factor at baseline; later capacity is measured against it. */
+  capacity: number
+}
+
+export interface GdpComposition {
+  industry: number
+  commerce: number
+  military: number
+  civil: number
+  total: number
+  industryOutput: number
+  commerceOutput: number
+  militaryOutput: number
+  industryActivity: number
+  commerceActivity: number
+  militaryActivity: number
+  capacity: number
+  capacityRatio: number
+}
+
 export interface CountryStats {
   population: number
+  /** GDP = gdpIndustry + gdpCommerce + gdpMilitary. */
   gdp: number
+  /** GDP produced by resource extraction and refinement. */
+  gdpIndustry: number
+  /** GDP produced by household consumption and consumer trade. */
+  gdpCommerce: number
+  /** GDP produced by defense outlays. */
+  gdpMilitary: number
   treasury: number
   debt: number
   debtRate: number
@@ -232,6 +275,7 @@ export interface Country {
   map: MapCell
   flagSeed: number
   stats: CountryStats
+  economyBase: EconomyBase
   taxes: TaxRates
   ministries: Record<MinistryId, Ministry>
   resources: Record<ResourceId, ResourceState>
@@ -428,6 +472,16 @@ export interface HistoryPoint {
   countries: Record<string, CountrySnapshot>
   inflation: number
   fxRate: number
+  /** GDP composition introduced with the sector engine; optional for old saves. */
+  gdpIndustry?: number
+  gdpCommerce?: number
+  gdpMilitary?: number
+  /** Sovereign rate at the close of the turn. */
+  debtRate?: number
+  /** PPP fair value of the player's currency at the close of the turn. */
+  fxFairRate?: number
+  /** Average inflation across living states. */
+  worldInflation?: number
 }
 
 export interface LogEntry {

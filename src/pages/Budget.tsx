@@ -10,7 +10,6 @@ import {
   Tooltip,
   XAxis,
   YAxis,
-  BarChart,
 } from 'recharts'
 import { RESOURCES, RESOURCE_IDS } from '../game/constants'
 import type { ResourceId } from '../game/types'
@@ -19,17 +18,16 @@ import {
   computeBudget,
   debtLimit,
   debtToGdp,
-  gdpGrowthDrivers,
-  gdpGrowthTotal,
   resourceFlows,
   resourceValuation,
 } from '../game/selectors'
+import { computeGdp, gdpCapacityDrivers } from '../game/economy'
 import {
   formatMoney,
-  formatNumber,
   formatPercent,
   formatQuantity,
   formatReserveRunway,
+  formatSignedMoney,
   formatSignedPercent,
   formatStockRunway,
 } from '../game/format'
@@ -115,25 +113,161 @@ export function Budget() {
       exports: flow.exports,
     }
   })
+  const compositionData = visibleHistory
+    .filter(
+      (point) => (point.gdpIndustry ?? 0) + (point.gdpCommerce ?? 0) + (point.gdpMilitary ?? 0) > 0,
+    )
+    .map((point) => {
+      const industry = point.gdpIndustry ?? 0
+      const commerce = point.gdpCommerce ?? 0
+      const military = point.gdpMilitary ?? 0
+      return {
+        turn: point.turn,
+        industry,
+        commerce,
+        military,
+        total: industry + commerce + military,
+      }
+    })
 
   const rateChanged = player ? Math.abs(rate - player.stats.debtRate) > 0.01 : false
 
   if (!game || !player || !budget || !flows || !resource) return null
 
-  const gdpDrivers = gdpGrowthDrivers(player, flows, budget)
-  const gdpGrowth = gdpGrowthTotal(gdpDrivers)
+  const gdpDrivers = gdpCapacityDrivers(player, flows, budget)
+  const composition = computeGdp(player, flows, budget)
+  const civilCapacityRatio = composition.capacityRatio - 1
   const valuation = resourceValuation(flows)
   const resourceShare = (valuation.productionValue / Math.max(1, player.stats.gdp)) * 100
   const driverScale = Math.max(0.005, ...gdpDrivers.map((driver) => Math.abs(driver.value)))
+  const industryShare = composition.total > 0 ? composition.industry / composition.total : 0
+  const commerceShare = composition.total > 0 ? composition.commerce / composition.total : 0
+  const militaryShare = composition.total > 0 ? composition.military / composition.total : 0
 
   const limit = debtLimit(player)
   const maxLedger = Math.max(budget.totalRevenue, budget.totalExpenses, 1)
+  const maxExpense = Math.max(1, ...budget.expenses.map((line) => line.amount))
   const currentResourceValue = resource.production * resource.price
   const selectedReserveRunway = formatReserveRunway(
     resource.reserves,
     resource.depletion ?? resource.production,
   )
   const selectedStockRunway = formatStockRunway(resource.stock, resource.finalBalance)
+  const debtPanel = (
+    <SectionCard
+      title="Debt & lenders"
+      subtitle="Borrow against the future, or buy some of it back. Changing the rate costs one action."
+      className="debt-card debt-card-wide"
+    >
+      <div className="debt-wide">
+        <div className="debt-overview">
+          <div className="debt-headline">
+            <div>
+              <span className="mini-kicker">Outstanding</span>
+              <strong>{formatMoney(player.stats.debt)}</strong>
+            </div>
+            <Badge
+              tone={
+                debtToGdp(player) > 80
+                  ? 'negative'
+                  : debtToGdp(player) > 55
+                    ? 'warning'
+                    : 'positive'
+              }
+            >
+              {formatPercent(debtToGdp(player))} of GDP
+            </Badge>
+          </div>
+          <ProgressBar
+            value={player.stats.debt}
+            max={Math.max(1, limit)}
+            tone={player.stats.debt / limit > 0.85 ? 'negative' : 'warning'}
+            label="Credit limit"
+            valueLabel={`${formatPercent((player.stats.debt / Math.max(1, limit)) * 100)} used`}
+          />
+          <div className="debt-terms">
+            <span>
+              {player.stats.debtRate < 0 ? 'Carry income / turn' : 'Interest / turn'}{' '}
+              <strong className={player.stats.debtRate < 0 ? 'text-positive' : 'text-muted'}>
+                {formatSignedMoney(player.stats.debt * (player.stats.debtRate / 100))}
+              </strong>
+            </span>
+            <span>
+              Lender limit <strong>{formatMoney(limit)}</strong>
+            </span>
+          </div>
+        </div>
+        <div className="debt-actions">
+          <div className="field-grid">
+            <label className="field">
+              <span>Borrow / repay ($M)</span>
+              <input
+                className="input"
+                type="number"
+                min={1}
+                step={100}
+                value={debtAmount}
+                onChange={(event) => setDebtAmount(event.target.value)}
+              />
+            </label>
+            <div className="field-actions">
+              <button
+                type="button"
+                className="btn"
+                onClick={() => adjustDebt(Math.max(0, Number(debtAmount) || 0))}
+                disabled={game.actionsLeft < 1}
+              >
+                <Icon name="Plus" size={15} /> Borrow
+              </button>
+              <button
+                type="button"
+                className="btn"
+                onClick={() => adjustDebt(-Math.max(0, Number(debtAmount) || 0))}
+                disabled={game.actionsLeft < 1}
+              >
+                <Icon name="Minus" size={15} /> Repay
+              </button>
+            </div>
+          </div>
+        </div>
+        <div className="debt-rate">
+          <div className="rate-control">
+            <div className="field-label">
+              <span>Debt rate</span>
+              <strong>{rate.toFixed(1)}%</strong>
+            </div>
+            <input
+              className="slider"
+              type="range"
+              min={-5}
+              max={20}
+              step={0.5}
+              value={rate}
+              onChange={(event) => setRate(Number(event.target.value))}
+              style={{ '--fill': `${((rate + 5) / 25) * 100}%` } as React.CSSProperties}
+            />
+            <div className="range-scale">
+              <span>−5% carry income</span>
+              <span>20%</span>
+            </div>
+            <button
+              type="button"
+              className="btn btn-sm"
+              onClick={() => setDebtRate(rate)}
+              disabled={!rateChanged || game.actionsLeft < 1}
+            >
+              <Icon name="Percent" size={14} /> Apply rate
+            </button>
+            <p className="helper-text">
+              A higher rate widens the lender limit but raises debt-service inflation. A negative
+              rate turns interest into income and pulls inflation down, which can tip the economy
+              into deflation.
+            </p>
+          </div>
+        </div>
+      </div>
+    </SectionCard>
+  )
   return (
     <div className="page">
       <PageHeader page="budget">
@@ -174,18 +308,18 @@ export function Budget() {
         <StatTile
           label="GDP"
           value={formatMoney(player.stats.gdp)}
-          hint={`Tax burden ${formatDecimal(budget.taxBurden)} · Laffer ${formatPercent(budget.laffer * 100)}`}
+          hint={`Industry ${formatMoney(composition.industry)} · Commerce ${formatMoney(composition.commerce)} · Military ${formatMoney(composition.military)}`}
           icon="ChartLine"
           tone="accent"
         />
       </div>
 
       <SectionCard
-        title="GDP drivers"
-        subtitle="Growth is not a single multiplier. Resource output, deficits, reserves, debt and fiscal pressure all pull on the economy each turn."
+        title="GDP composition & capacity"
+        subtitle="GDP is the sum of the civil economy (industry and commerce) and the military economy. Debt, fiscal, commerce and social pressures scale civil capacity; no growth rate compounds on its own."
         action={
-          <Badge tone={gdpGrowth >= 0 ? 'positive' : 'negative'} icon="ChartLine">
-            {formatSignedPercent(gdpGrowth * 100, 2)} per turn
+          <Badge tone={civilCapacityRatio >= 0 ? 'positive' : 'negative'} icon="ChartLine">
+            {formatSignedPercent(civilCapacityRatio * 100, 2)} civil capacity
           </Badge>
         }
       >
@@ -208,14 +342,39 @@ export function Budget() {
             })}
           </div>
           <aside className="gdp-driver-summary">
-            <span className="gdp-summary-kicker">Projected before random shock</span>
-            <strong className={gdpGrowth >= 0 ? 'text-positive' : 'text-negative'}>
-              {formatSignedPercent(gdpGrowth * 100, 2)}
+            <span className="gdp-summary-kicker">Civil capacity vs baseline</span>
+            <strong className={civilCapacityRatio >= 0 ? 'text-positive' : 'text-negative'}>
+              {formatSignedPercent(civilCapacityRatio * 100, 2)}
             </strong>
             <p>
-              The engine adds a small random term and clamps the final rate between −50.00% and
-              +50.00% per turn.
+              Applied to industry and commerce. Military GDP is the Defense ministry plus military
+              upkeep; it rises and falls with actual defense outlays.
             </p>
+            <div className="gdp-summary-row">
+              <span>Industry GDP</span>
+              <strong>
+                {formatMoney(composition.industry)}{' '}
+                <small className="text-muted">{formatPercent(industryShare * 100, 1)}</small>
+              </strong>
+            </div>
+            <div className="gdp-summary-row">
+              <span>Commerce GDP</span>
+              <strong>
+                {formatMoney(composition.commerce)}{' '}
+                <small className="text-muted">{formatPercent(commerceShare * 100, 1)}</small>
+              </strong>
+            </div>
+            <div className="gdp-summary-row">
+              <span>Military GDP</span>
+              <strong>
+                {formatMoney(composition.military)}{' '}
+                <small className="text-muted">{formatPercent(militaryShare * 100, 1)}</small>
+              </strong>
+            </div>
+            <div className="gdp-summary-row">
+              <span>Civil economy</span>
+              <strong>{formatMoney(composition.civil)}</strong>
+            </div>
             <div className="gdp-summary-row">
               <span>Resource production</span>
               <strong>{formatMoney(valuation.productionValue)}</strong>
@@ -223,10 +382,6 @@ export function Budget() {
             <div className="gdp-summary-row">
               <span>Production vs GDP</span>
               <strong>{formatPercent(resourceShare, 1)}</strong>
-            </div>
-            <div className="gdp-summary-row">
-              <span>Reserve wealth</span>
-              <strong>{formatMoney(valuation.reserveValue)}</strong>
             </div>
             <div className="gdp-summary-row">
               <span>Debt-to-GDP</span>
@@ -242,161 +397,256 @@ export function Budget() {
         </div>
       </SectionCard>
 
-      <div className="budget-main-grid">
-        <SectionCard
-          className="chart-card"
-          title="Money over time"
-          subtitle="Revenue, expenses and the balance of the state, turn by turn."
-          action={
-            <div className="chart-actions">
-              <div className="segmented segmented-small" role="group" aria-label="Chart mode">
-                <button
-                  type="button"
-                  className={moneyMode === 'flows' ? 'is-active' : ''}
-                  onClick={() => setMoneyMode('flows')}
-                  aria-pressed={moneyMode === 'flows'}
-                >
-                  Flows
-                </button>
-                <button
-                  type="button"
-                  className={moneyMode === 'balances' ? 'is-active' : ''}
-                  onClick={() => setMoneyMode('balances')}
-                  aria-pressed={moneyMode === 'balances'}
-                >
-                  Balances
-                </button>
-              </div>
-              <RangeSelector
-                value={range}
-                onChange={setRange}
-                options={[
-                  { value: 8, label: '8' },
-                  { value: 20, label: '20' },
-                  { value: 0, label: 'All' },
-                ]}
-              />
-            </div>
-          }
-        >
-          {moneyData.length < 2 ? (
-            <EmptyState
-              icon="ChartLine"
-              title="The ledger needs a second point"
-              body="End a turn to chart the first fiscal year. The baseline is already recorded."
-            />
-          ) : (
-            <div className="chart-frame">
-              <ResponsiveContainer width="100%" height={286}>
-                <ComposedChart data={moneyData} margin={{ top: 8, right: 8, bottom: 0, left: 4 }}>
-                  <defs>
-                    <linearGradient id="revenue-fill" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="0%" stopColor="var(--accent)" stopOpacity="0.26" />
-                      <stop offset="100%" stopColor="var(--accent)" stopOpacity="0" />
-                    </linearGradient>
-                    <linearGradient id="expense-fill" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="0%" stopColor="var(--error)" stopOpacity="0.18" />
-                      <stop offset="100%" stopColor="var(--error)" stopOpacity="0" />
-                    </linearGradient>
-                  </defs>
-                  <CartesianGrid
-                    stroke="var(--chart-grid)"
-                    strokeDasharray="3 6"
-                    vertical={false}
-                  />
-                  <XAxis
-                    dataKey="turn"
-                    tick={{ fill: 'var(--muted)', fontSize: 11 }}
-                    axisLine={false}
-                    tickLine={false}
-                    tickFormatter={(value) => `T${value}`}
-                  />
-                  <YAxis
-                    tick={{ fill: 'var(--muted)', fontSize: 11 }}
-                    axisLine={false}
-                    tickLine={false}
-                    tickFormatter={CURRENCY_TICK}
-                    width={62}
-                  />
-                  <Tooltip
-                    contentStyle={{
-                      background: 'var(--surface)',
-                      border: '1px solid var(--border)',
-                      borderRadius: 12,
-                      color: 'var(--fg)',
-                      fontSize: 12,
-                    }}
-                    labelFormatter={(label) => `Turn ${label}`}
-                    formatter={(value, name) => [formatMoney(Number(value)), String(name)]}
-                  />
-                  <Legend wrapperStyle={{ fontSize: 12, color: 'var(--muted)' }} />
-                  {moneyMode === 'flows' ? (
-                    <>
-                      <Area
-                        type="monotone"
-                        dataKey="revenue"
-                        name="Revenue"
-                        stroke="var(--accent)"
-                        fill="url(#revenue-fill)"
-                        strokeWidth={2}
-                      />
-                      <Area
-                        type="monotone"
-                        dataKey="expenses"
-                        name="Expenses"
-                        stroke="var(--error)"
-                        fill="url(#expense-fill)"
-                        strokeWidth={2}
-                      />
-                      <Line
-                        type="monotone"
-                        dataKey="net"
-                        name="Net"
-                        stroke="var(--accent-2)"
-                        strokeWidth={2}
-                        dot={false}
-                      />
-                    </>
-                  ) : (
-                    <>
-                      <Line
-                        type="monotone"
-                        dataKey="treasury"
-                        name="Treasury"
-                        stroke="var(--accent-2)"
-                        strokeWidth={2}
-                        dot={false}
-                      />
-                      <Line
-                        type="monotone"
-                        dataKey="debt"
-                        name="Debt"
-                        stroke="var(--error)"
-                        strokeWidth={2}
-                        dot={false}
-                      />
-                    </>
-                  )}
-                </ComposedChart>
-              </ResponsiveContainer>
-            </div>
-          )}
-          <div className="chart-footnote">
-            <Icon name="Info" size={13} /> Money is shown in nominal USD. Hover any point for the
-            exact values.
-          </div>
-        </SectionCard>
+      {debtPanel}
 
-        <SectionCard
-          className="ledger-card"
-          title="Projected ledger"
-          subtitle="The current policy mix, before the next turn closes."
-          action={
-            <Badge tone={budget.net >= 0 ? 'positive' : 'negative'}>
-              {budget.net >= 0 ? 'Surplus' : 'Deficit'}
-            </Badge>
-          }
-        >
+      <SectionCard
+        className="chart-card"
+        title="GDP composition over time"
+        subtitle="Each turn is the sum of industry, commerce and military output. A falling bar means the base itself shrank."
+        action={
+          <RangeSelector
+            value={range}
+            onChange={setRange}
+            options={[
+              { value: 8, label: '8' },
+              { value: 20, label: '20' },
+              { value: 0, label: 'All' },
+            ]}
+          />
+        }
+      >
+        {compositionData.length < 2 || !compositionData.some((point) => point.total > 0) ? (
+          <EmptyState
+            icon="ChartLine"
+            title="Composition needs two turns"
+            body="End a turn to record the industry, commerce and military components of GDP."
+          />
+        ) : (
+          <div className="chart-frame">
+            <ResponsiveContainer width="100%" height={280}>
+              <ComposedChart
+                data={compositionData}
+                margin={{ top: 8, right: 8, bottom: 0, left: 4 }}
+              >
+                <CartesianGrid stroke="var(--chart-grid)" strokeDasharray="3 6" vertical={false} />
+                <XAxis
+                  dataKey="turn"
+                  tick={{ fill: 'var(--muted)', fontSize: 11 }}
+                  axisLine={false}
+                  tickLine={false}
+                  tickFormatter={(value) => `T${value}`}
+                />
+                <YAxis
+                  tick={{ fill: 'var(--muted)', fontSize: 11 }}
+                  axisLine={false}
+                  tickLine={false}
+                  tickFormatter={CURRENCY_TICK}
+                  width={64}
+                />
+                <Tooltip
+                  contentStyle={{
+                    background: 'var(--surface)',
+                    border: '1px solid var(--border)',
+                    borderRadius: 12,
+                    color: 'var(--fg)',
+                    fontSize: 12,
+                  }}
+                  labelFormatter={(label) => `Turn ${label}`}
+                  formatter={(value, name) => [formatMoney(Number(value)), String(name)]}
+                />
+                <Legend wrapperStyle={{ fontSize: 12, color: 'var(--muted)' }} />
+                <Bar
+                  dataKey="industry"
+                  name="Industry"
+                  stackId="gdp"
+                  fill="var(--c1)"
+                  fillOpacity={0.85}
+                />
+                <Bar
+                  dataKey="commerce"
+                  name="Commerce"
+                  stackId="gdp"
+                  fill="var(--c2)"
+                  fillOpacity={0.85}
+                />
+                <Bar
+                  dataKey="military"
+                  name="Military"
+                  stackId="gdp"
+                  fill="var(--c3)"
+                  fillOpacity={0.85}
+                  radius={[4, 4, 0, 0]}
+                />
+                <Line
+                  type="monotone"
+                  dataKey="total"
+                  name="GDP"
+                  stroke="var(--fg)"
+                  strokeWidth={2}
+                  dot={false}
+                />
+              </ComposedChart>
+            </ResponsiveContainer>
+          </div>
+        )}
+        <div className="chart-footnote">
+          <Icon name="Info" size={13} /> Industry tracks resource production value; commerce tracks
+          household consumption and net consumer trade; military tracks defense outlays. Civil
+          capacity is applied to the first two, not the military.
+        </div>
+      </SectionCard>
+
+      <SectionCard
+        className="chart-card"
+        title="Money over time"
+        subtitle="Revenue, expenses and the balance of the state, turn by turn."
+        action={
+          <div className="chart-actions">
+            <div className="segmented segmented-small" role="group" aria-label="Chart mode">
+              <button
+                type="button"
+                className={moneyMode === 'flows' ? 'is-active' : ''}
+                onClick={() => setMoneyMode('flows')}
+                aria-pressed={moneyMode === 'flows'}
+              >
+                Flows
+              </button>
+              <button
+                type="button"
+                className={moneyMode === 'balances' ? 'is-active' : ''}
+                onClick={() => setMoneyMode('balances')}
+                aria-pressed={moneyMode === 'balances'}
+              >
+                Balances
+              </button>
+            </div>
+            <RangeSelector
+              value={range}
+              onChange={setRange}
+              options={[
+                { value: 8, label: '8' },
+                { value: 20, label: '20' },
+                { value: 0, label: 'All' },
+              ]}
+            />
+          </div>
+        }
+      >
+        {moneyData.length < 2 ? (
+          <EmptyState
+            icon="ChartLine"
+            title="The ledger needs a second point"
+            body="End a turn to chart the first fiscal year. The baseline is already recorded."
+          />
+        ) : (
+          <div className="chart-frame">
+            <ResponsiveContainer width="100%" height={286}>
+              <ComposedChart data={moneyData} margin={{ top: 8, right: 8, bottom: 0, left: 4 }}>
+                <defs>
+                  <linearGradient id="revenue-fill" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stopColor="var(--accent)" stopOpacity="0.26" />
+                    <stop offset="100%" stopColor="var(--accent)" stopOpacity="0" />
+                  </linearGradient>
+                  <linearGradient id="expense-fill" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stopColor="var(--error)" stopOpacity="0.18" />
+                    <stop offset="100%" stopColor="var(--error)" stopOpacity="0" />
+                  </linearGradient>
+                </defs>
+                <CartesianGrid stroke="var(--chart-grid)" strokeDasharray="3 6" vertical={false} />
+                <XAxis
+                  dataKey="turn"
+                  tick={{ fill: 'var(--muted)', fontSize: 11 }}
+                  axisLine={false}
+                  tickLine={false}
+                  tickFormatter={(value) => `T${value}`}
+                />
+                <YAxis
+                  tick={{ fill: 'var(--muted)', fontSize: 11 }}
+                  axisLine={false}
+                  tickLine={false}
+                  tickFormatter={CURRENCY_TICK}
+                  width={62}
+                />
+                <Tooltip
+                  contentStyle={{
+                    background: 'var(--surface)',
+                    border: '1px solid var(--border)',
+                    borderRadius: 12,
+                    color: 'var(--fg)',
+                    fontSize: 12,
+                  }}
+                  labelFormatter={(label) => `Turn ${label}`}
+                  formatter={(value, name) => [formatMoney(Number(value)), String(name)]}
+                />
+                <Legend wrapperStyle={{ fontSize: 12, color: 'var(--muted)' }} />
+                {moneyMode === 'flows' ? (
+                  <>
+                    <Area
+                      type="monotone"
+                      dataKey="revenue"
+                      name="Revenue"
+                      stroke="var(--accent)"
+                      fill="url(#revenue-fill)"
+                      strokeWidth={2}
+                    />
+                    <Area
+                      type="monotone"
+                      dataKey="expenses"
+                      name="Expenses"
+                      stroke="var(--error)"
+                      fill="url(#expense-fill)"
+                      strokeWidth={2}
+                    />
+                    <Line
+                      type="monotone"
+                      dataKey="net"
+                      name="Net"
+                      stroke="var(--accent-2)"
+                      strokeWidth={2}
+                      dot={false}
+                    />
+                  </>
+                ) : (
+                  <>
+                    <Line
+                      type="monotone"
+                      dataKey="treasury"
+                      name="Treasury"
+                      stroke="var(--accent-2)"
+                      strokeWidth={2}
+                      dot={false}
+                    />
+                    <Line
+                      type="monotone"
+                      dataKey="debt"
+                      name="Debt"
+                      stroke="var(--error)"
+                      strokeWidth={2}
+                      dot={false}
+                    />
+                  </>
+                )}
+              </ComposedChart>
+            </ResponsiveContainer>
+          </div>
+        )}
+        <div className="chart-footnote">
+          <Icon name="Info" size={13} /> Money is shown in nominal USD. Hover any point for the
+          exact values.
+        </div>
+      </SectionCard>
+
+      <SectionCard
+        className="ledger-card ledger-card-wide"
+        title="Projected ledger"
+        subtitle="The current policy mix, before the next turn closes. Hover any line for its basis."
+        action={
+          <Badge tone={budget.net >= 0 ? 'positive' : 'negative'}>
+            {budget.net >= 0 ? 'Surplus' : 'Deficit'}
+          </Badge>
+        }
+      >
+        <div className="ledger-wide-grid">
           <div className="ledger-block">
             <div className="ledger-heading">
               <span>Revenue</span>
@@ -404,16 +654,35 @@ export function Budget() {
             </div>
             {budget.revenue.map((line) => (
               <div key={line.key} className="ledger-row">
-                <div className="ledger-row-top">
+                <div className="ledger-row-top" title={line.hint}>
                   <span>{line.label}</span>
                   <strong>{formatMoney(line.amount)}</strong>
                 </div>
                 <div className="ledger-bar">
                   <span style={{ width: `${Math.max(0, (line.amount / maxLedger) * 100)}%` }} />
                 </div>
-                {line.hint && <small>{line.hint}</small>}
               </div>
             ))}
+            <div className="ledger-metrics">
+              <span>
+                Revenue / GDP{' '}
+                <strong>
+                  {formatPercent((budget.totalRevenue / Math.max(1, player.stats.gdp)) * 100, 1)}
+                </strong>
+              </span>
+              <span>
+                Spending / GDP{' '}
+                <strong>
+                  {formatPercent((budget.totalExpenses / Math.max(1, player.stats.gdp)) * 100, 1)}
+                </strong>
+              </span>
+              <span>
+                Tax burden <strong>{formatPercent(budget.taxBurden, 1)}</strong>
+              </span>
+              <span>
+                Laffer efficiency <strong>{formatPercent(budget.laffer * 100)}</strong>
+              </span>
+            </div>
           </div>
           <div className="ledger-block">
             <div className="ledger-heading">
@@ -422,130 +691,26 @@ export function Budget() {
             </div>
             {budget.expenses.map((line) => (
               <div key={line.key} className="ledger-row">
-                <div className="ledger-row-top">
+                <div className="ledger-row-top" title={line.hint}>
                   <span>{line.label}</span>
                   <strong>{formatMoney(line.amount)}</strong>
                 </div>
                 <div className="ledger-bar ledger-bar-expense">
                   <span style={{ width: `${Math.max(0, (line.amount / maxLedger) * 100)}%` }} />
                 </div>
-                {line.hint && <small>{line.hint}</small>}
               </div>
             ))}
           </div>
-          <div className="ledger-net">
-            <span>Net balance</span>
-            <strong className={budget.net >= 0 ? 'text-positive' : 'text-negative'}>
-              {formatMoney(budget.net)}
-            </strong>
-          </div>
-        </SectionCard>
-      </div>
+        </div>
+        <div className="ledger-net">
+          <span>Net balance</span>
+          <strong className={budget.net >= 0 ? 'text-positive' : 'text-negative'}>
+            {formatMoney(budget.net)}
+          </strong>
+        </div>
+      </SectionCard>
 
-      <div className="budget-middle-grid">
-        <SectionCard
-          title="Debt & lenders"
-          subtitle="Borrow against the future, or buy some of it back. Changing the rate costs one action."
-          className="debt-card"
-        >
-          <div className="debt-headline">
-            <div>
-              <span className="mini-kicker">Outstanding</span>
-              <strong>{formatMoney(player.stats.debt)}</strong>
-            </div>
-            <Badge
-              tone={
-                debtToGdp(player) > 80
-                  ? 'negative'
-                  : debtToGdp(player) > 55
-                    ? 'warning'
-                    : 'positive'
-              }
-            >
-              {formatPercent(debtToGdp(player))} of GDP
-            </Badge>
-          </div>
-          <ProgressBar
-            value={player.stats.debt}
-            max={Math.max(1, limit)}
-            tone={player.stats.debt / limit > 0.85 ? 'negative' : 'warning'}
-            label="Credit limit"
-            valueLabel={`${formatPercent((player.stats.debt / Math.max(1, limit)) * 100)} used`}
-          />
-          <div className="debt-terms">
-            <span>
-              Interest / turn{' '}
-              <strong>{formatMoney(player.stats.debt * (player.stats.debtRate / 100))}</strong>
-            </span>
-            <span>
-              Lender limit <strong>{formatMoney(limit)}</strong>
-            </span>
-          </div>
-          <div className="field-grid">
-            <label className="field">
-              <span>Borrow / repay ($M)</span>
-              <input
-                className="input"
-                type="number"
-                min={1}
-                step={100}
-                value={debtAmount}
-                onChange={(event) => setDebtAmount(event.target.value)}
-              />
-            </label>
-            <div className="field-actions">
-              <button
-                type="button"
-                className="btn"
-                onClick={() => adjustDebt(Math.max(0, Number(debtAmount) || 0))}
-                disabled={game.actionsLeft < 1}
-              >
-                <Icon name="Plus" size={15} /> Borrow
-              </button>
-              <button
-                type="button"
-                className="btn"
-                onClick={() => adjustDebt(-Math.max(0, Number(debtAmount) || 0))}
-                disabled={game.actionsLeft < 1}
-              >
-                <Icon name="Minus" size={15} /> Repay
-              </button>
-            </div>
-          </div>
-          <div className="rate-control">
-            <div className="field-label">
-              <span>Debt rate</span>
-              <strong>{rate.toFixed(1)}%</strong>
-            </div>
-            <input
-              className="slider"
-              type="range"
-              min={1}
-              max={20}
-              step={0.5}
-              value={rate}
-              onChange={(event) => setRate(Number(event.target.value))}
-              style={{ '--fill': `${((rate - 1) / 19) * 100}%` } as React.CSSProperties}
-            />
-            <div className="range-scale">
-              <span>1%</span>
-              <span>20%</span>
-            </div>
-            <button
-              type="button"
-              className="btn btn-sm"
-              onClick={() => setDebtRate(rate)}
-              disabled={!rateChanged || game.actionsLeft < 1}
-            >
-              <Icon name="Percent" size={14} /> Apply rate
-            </button>
-            <p className="helper-text">
-              A higher rate widens the lender limit but makes every borrowed dollar more expensive
-              next turn.
-            </p>
-          </div>
-        </SectionCard>
-
+      <div className="budget-lower-grid">
         <SectionCard
           className="chart-card resource-chart-card"
           title="Resource history"
@@ -698,6 +863,20 @@ export function Budget() {
             </span>
           </div>
         </SectionCard>
+
+        <SectionCard title="Spending structure" subtitle="Where the projected money goes.">
+          <div className="spending-list">
+            {budget.expenses.map((line) => (
+              <div key={line.key} className="spending-item" title={line.hint}>
+                <span className="spending-item-label">{line.label}</span>
+                <div className="spending-item-track">
+                  <span style={{ width: `${Math.max(0, (line.amount / maxExpense) * 100)}%` }} />
+                </div>
+                <strong>{formatMoney(line.amount)}</strong>
+              </div>
+            ))}
+          </div>
+        </SectionCard>
       </div>
 
       <SectionCard
@@ -807,50 +986,6 @@ export function Budget() {
           .
         </p>
       </SectionCard>
-
-      <SectionCard title="Spending structure" subtitle="Where the projected money goes.">
-        <div className="spending-chart">
-          <ResponsiveContainer width="100%" height={220}>
-            <BarChart
-              data={budget.expenses.map((line) => ({ name: line.label, amount: line.amount }))}
-              layout="vertical"
-              margin={{ left: 18, right: 16, top: 0, bottom: 0 }}
-            >
-              <CartesianGrid stroke="var(--chart-grid)" strokeDasharray="3 6" horizontal={false} />
-              <XAxis
-                type="number"
-                tick={{ fill: 'var(--muted)', fontSize: 11 }}
-                axisLine={false}
-                tickLine={false}
-                tickFormatter={CURRENCY_TICK}
-              />
-              <YAxis
-                type="category"
-                dataKey="name"
-                tick={{ fill: 'var(--muted)', fontSize: 11 }}
-                axisLine={false}
-                tickLine={false}
-                width={112}
-              />
-              <Tooltip
-                contentStyle={{
-                  background: 'var(--surface)',
-                  border: '1px solid var(--border)',
-                  borderRadius: 12,
-                  color: 'var(--fg)',
-                  fontSize: 12,
-                }}
-                formatter={(value) => [formatMoney(Number(value)), 'Amount']}
-              />
-              <Bar dataKey="amount" fill="var(--accent)" radius={[0, 5, 5, 0]} fillOpacity={0.8} />
-            </BarChart>
-          </ResponsiveContainer>
-        </div>
-      </SectionCard>
     </div>
   )
-}
-
-function formatDecimal(value: number): string {
-  return formatNumber(value, 1)
 }

@@ -38,8 +38,6 @@ import {
   computeComposites,
   computeMarket,
   countrySnapshot,
-  gdpGrowthDrivers,
-  gdpGrowthTotal,
   gdpPerCapita,
   incomeTaxDepressionEffect,
   inflationTarget,
@@ -53,6 +51,7 @@ import {
   worldApprovalForCountry,
 } from './selectors'
 import { eventCandidates } from './events'
+import { applyGdpShock, computeGdp } from './economy'
 import { formatMoney } from './format'
 export const getPlayer = (game: GameState): Country =>
   game.countries.find((country) => country.id === game.playerId) ??
@@ -381,7 +380,7 @@ function runAiActions(game: GameState, rng: RNG): void {
           country,
         )
       } else if (roll < 0.9) {
-        country.stats.gdp *= 1 + rng.float(0.001, 0.004)
+        applyGdpShock(country, rng.float(0.001, 0.004))
         country.stats.treasury += country.stats.gdp * 0.0004
         pushLog(
           game,
@@ -576,6 +575,18 @@ function updateCountryStats(
   const shortages = RESOURCE_IDS.filter((id) => flows[id].shortage > 0).length
   const burden = budget.taxBurden
 
+  // GDP is rebuilt from sector activity, not compounded from a growth rate.
+  const previousGdp = Math.max(1, country.stats.gdp)
+  const composition = computeGdp(country, flows, budget, commerce)
+  const industryGdp = roundTo(composition.industry, 1)
+  const commerceGdp = roundTo(composition.commerce, 1)
+  const militaryGdp = roundTo(composition.military, 1)
+  country.stats.gdpIndustry = industryGdp
+  country.stats.gdpCommerce = commerceGdp
+  country.stats.gdpMilitary = militaryGdp
+  country.stats.gdp = Math.max(100, roundTo(industryGdp + commerceGdp + militaryGdp, 1))
+  const growth = previousGdp > 0 ? country.stats.gdp / previousGdp - 1 : 0
+
   const approvalDelta =
     0.25 * highBudgets -
     0.24 * lowBudgets -
@@ -584,14 +595,12 @@ function updateCountryStats(
     Math.max(0, country.stats.corruption - 40) * 0.012 +
     Math.max(0, country.stats.security - 50) * 0.012 +
     (modifiers.approval ?? 0) * 0.03 +
-    (country.stats.gdp > 0 && budget.net > 0 ? 0.2 : -0.2) +
+    (country.stats.gdp > 0 && budget.net > 0 ? 0.2 : -0.2) -
+    Math.max(0, -(country.stats.inflation ?? 0) - 1) * 0.2 +
     commerce.approvalDelta +
     rng.float(-0.5, 0.5)
   country.stats.approval = clamp(country.stats.approval + approvalDelta, 0, 100)
 
-  const growth =
-    gdpGrowthTotal(gdpGrowthDrivers(country, flows, budget, commerce)) + rng.float(-0.003, 0.003)
-  country.stats.gdp = Math.max(100, country.stats.gdp * (1 + clamp(growth, -0.5, 0.5)))
   const populationGrowth =
     0.0025 +
     (country.stats.hdi - 0.5) * 0.002 +
@@ -663,6 +672,7 @@ function updateCountryStats(
       (0.7 - country.stats.hdi) * 14 +
       country.stats.violence * 0.25 +
       incomeTaxDepressionEffect(country.taxes) +
+      Math.max(0, -(country.stats.inflation ?? 0) - 1) * 0.35 +
       commerce.depressionDelta,
     1,
     45,
@@ -674,7 +684,11 @@ function updateCountryStats(
 
   const targetInflation = inflationTarget(country, commerce, budget, growth)
   country.stats.inflation = roundTo(
-    clamp(lerp(country.stats.inflation ?? 0, targetInflation, 0.22) + rng.float(-0.4, 0.4), -5, 80),
+    clamp(
+      lerp(country.stats.inflation ?? 0, targetInflation, 0.22) + rng.float(-0.4, 0.4),
+      -15,
+      80,
+    ),
     1,
   )
 
@@ -771,7 +785,8 @@ function updateCurrencies(game: GameState, rng: RNG, budgets: Map<string, Budget
     const riskPremium =
       (Math.max(0, debtRatio - 60) / 100) * 0.02 +
       (Math.max(0, 45 - country.stats.approval) / 100) * 0.03 +
-      budget.commerce.shortageShare * 0.015
+      budget.commerce.shortageShare * 0.015 +
+      Math.max(0, country.stats.debtRate) * 0.001
     const target = ppp * (1 + clamp(riskPremium + tradePressure, -0.12, 0.2))
     const speed =
       currency.regime === 'floating' ? 0.24 : currency.regime === 'managed' ? 0.12 : 0.03
@@ -810,6 +825,11 @@ function captureHistory(
   for (const id of RESOURCE_IDS) {
     resourceHistory[id] = { ...flows[id] }
   }
+  const living = livingCountries(game)
+  const worldInflation =
+    living.length > 0
+      ? living.reduce((total, country) => total + (country.stats.inflation ?? 0), 0) / living.length
+      : 0
   const point: HistoryPoint = {
     turn: turnOverride ?? game.turn,
     revenue: budget.totalRevenue,
@@ -828,6 +848,12 @@ function captureHistory(
     countries,
     inflation: player.stats.inflation,
     fxRate: player.currency?.rate ?? 1,
+    gdpIndustry: player.stats.gdpIndustry,
+    gdpCommerce: player.stats.gdpCommerce,
+    gdpMilitary: player.stats.gdpMilitary,
+    debtRate: player.stats.debtRate,
+    fxFairRate: player.currency?.fairRate ?? 1,
+    worldInflation: roundTo(worldInflation, 2),
   }
   game.history.push(point)
   if (game.history.length > HISTORY_LIMIT)
@@ -952,7 +978,7 @@ export function advanceTurn(game: GameState): GameState {
       country.stats.treasury = 0
       const emergencySurcharge = unpaidDeficit * 0.05
       country.stats.debt += unpaidDeficit + emergencySurcharge
-      country.stats.debtRate = clamp(country.stats.debtRate + 0.2, 1, 35)
+      country.stats.debtRate = clamp(country.stats.debtRate + 0.2, -5, 35)
       if (country.id === player.id) {
         pushLog(
           game,

@@ -41,17 +41,20 @@ world and its history are persisted in `localStorage` after every action.
   trade contract, diplomatic mission and war declaration is budgeted in actions.
 - **A budget with teeth** — corporate and income taxes, import tariffs, resource royalties,
   six ministries, military upkeep, public services, debt service and trade contracts. The
-  Laffer curve is modelled, not decorative. GDP growth is decomposed into drivers: debt,
-  zero treasury, depleted reserves and shortages drag it down; resource output, stockpiles and
-  surpluses lift it. The final rate normalises to a −50% to +50% swing in extreme crises.
+  Laffer curve is modelled, not decorative. GDP is the sum of the civil economy (industry and
+  commerce) and the military economy, rebuilt each turn from real output. Debt, fiscal stress,
+  shortages and social pressure scale civil capacity, but no growth rate compounds on its own.
+  The sovereign rate ranges from −5% to 20%; negative rates turn interest into carry income.
 - **A citizen checkout** — rice, eggs, chicken, beef, fuel, electricity, cars, housing,
   healthcare, education, transport and telecom are priced from industry supply, household
   demand and consumer imports. Every good can be taxed or subsidised; the basket feeds GDP,
   approval, depression, HDI and Gini.
 - **Currencies and inflation** — every nation has its own currency, inflation rate and exchange
-  regime. Inflation responds to deficits, shortages and cost pressure; exchange rates
-  mean-revert toward relative purchasing-power parity with trade and risk premiums. Compare any
-  two currencies and rank the world by currency strength.
+  regime. All currencies launch at 1:1 parity with the credit ($), then diverge toward relative
+  purchasing-power parity. Inflation responds to deficits, debt service, the sovereign rate,
+  shortages, demand and FX pass-through; surpluses, negative rates, appreciation and recession
+  can produce deflation. Historical charts plot the exchange rate, inflation and the sovereign
+  rate, and any two currencies can be compared.
 - **Eight resource industries** — water, energy, agriculture, livestock, oil, metal, rare earth
   and uranium. Tiered d6 upgrades (1 fail, 2–5 improvements, 6 advancement) and single d10 research
   stimulus (1 fail, 2–9 bonuses on ext & ref, 10 +20% & advancement). Production, stockpiles and
@@ -210,18 +213,39 @@ Fiscal balance = levies − subsidies
 Consumer trade = export credit − import bill
 ```
 
+### GDP composition
+
+```
+GDP = industry GDP + commerce GDP + military GDP
+Industry GDP = industry anchor × (production value ÷ industry output anchor) × civil capacity
+Commerce GDP = commerce anchor × (household consumption + net consumer trade) ÷ commerce anchor × civil capacity
+Military GDP = military anchor × (Defense ministry + upkeep) ÷ military output anchor
+Civil capacity = clamp(1 + Σ pressure drivers, 0.35, 1.30)
+```
+
+The anchors are captured at world generation and preserve the starting GDP. Production,
+household consumption and defense outlays then move the components; there is no autonomous
+base expansion. Event and merger shocks scale the anchors permanently.
+
 ### Inflation and currency parity
 
 ```
-Inflation target = base + monetised deficit + shortage and basket pressure
-                   + demand-pull growth + FX pass-through − credibility
+All currencies launch at 1.00 per credit ($)
+Inflation target = base + monetised deficit − primary surplus
+                   + debt service + sovereign-rate stance
+                   + shortage and basket pressure + demand-pull growth
+                   + FX pass-through + deflation expectations
+                   − recession/depression drag − credibility
                    − stabilisation above 8% inflation
 Fair rate' = fair rate × (1 + clamp(0.6 × (inflation − world inflation), −4%, +4%))
 Market rate' = lerp(market rate, fair rate × (1 + risk + trade), regime speed)
 ```
 
-Imports and exports affect the current account and the exchange rate, not the state budget:
-households pay for consumer goods, while the treasury only collects levies or pays subsidies.
+A negative sovereign rate reduces debt service and the inflation target. When surpluses,
+appreciation, negative rates and demand collapse dominate, the target crosses below zero and
+the economy experiences deflation. Imports and exports affect the current account and the
+exchange rate, not the state budget: households pay for consumer goods, while the treasury
+only collects levies or pays subsidies.
 
 ### Saving
 

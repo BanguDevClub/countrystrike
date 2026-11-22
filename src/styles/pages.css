@@ -1181,20 +1181,67 @@
   padding: 24px;
 }
 
-.budget-main-grid {
+.budget-lower-grid {
   display: grid;
-  grid-template-columns: minmax(0, 1.5fr) minmax(320px, 0.86fr);
+  grid-template-columns: minmax(0, 1.35fr) minmax(330px, 0.65fr);
   gap: 16px;
-}
-
-.budget-middle-grid {
-  display: grid;
-  grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.12fr);
-  gap: 16px;
+  align-items: start;
 }
 
 .ledger-card {
   min-width: 0;
+}
+
+.ledger-wide-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0 26px;
+}
+
+.ledger-wide-grid .ledger-block {
+  padding-bottom: 0;
+  border-bottom: 0;
+}
+
+.ledger-wide-grid .ledger-block + .ledger-block {
+  padding-top: 0;
+  padding-left: 26px;
+  border-left: 1px solid var(--border);
+}
+
+.ledger-card-wide .ledger-net {
+  margin-top: 14px;
+  padding-top: 13px;
+  border-top: 1px solid var(--border);
+}
+
+.debt-wide {
+  display: grid;
+  grid-template-columns: minmax(210px, 0.95fr) minmax(230px, 0.9fr) minmax(280px, 1.15fr);
+  gap: 22px;
+  align-items: start;
+}
+
+.debt-overview,
+.debt-actions,
+.debt-rate {
+  min-width: 0;
+}
+
+.debt-wide .debt-headline {
+  margin-bottom: 11px;
+}
+
+.debt-wide .debt-terms {
+  margin-bottom: 0;
+}
+
+.debt-actions .field-grid {
+  margin: 0;
+}
+
+.debt-rate .rate-control {
+  margin: 0;
 }
 
 .ledger-block {
@@ -1262,12 +1309,37 @@
   background: var(--warning);
 }
 
-.ledger-row small {
-  display: block;
+.ledger-card-wide .ledger-row {
+  margin-bottom: 7px;
+}
+
+.ledger-card-wide .ledger-bar {
   margin-top: 3px;
-  color: var(--faint);
-  font-size: 0.62rem;
-  line-height: 1.35;
+}
+
+.ledger-metrics {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 7px 16px;
+  margin-top: 14px;
+  padding: 11px 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface-2);
+}
+
+.ledger-metrics span {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  color: var(--muted);
+  font-size: 0.65rem;
+}
+
+.ledger-metrics strong {
+  color: var(--fg);
+  font-variant-numeric: tabular-nums;
 }
 
 .ledger-net {
@@ -1395,14 +1467,75 @@
   font-variant-numeric: tabular-nums;
 }
 
-.spending-chart {
-  margin-top: -4px;
+.spending-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.spending-item {
+  display: grid;
+  grid-template-columns: minmax(88px, 0.72fr) minmax(0, 1fr) 62px;
+  align-items: center;
+  gap: 9px;
+  font-size: 0.68rem;
+}
+
+.spending-item-label {
+  overflow: hidden;
+  color: var(--muted);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.spending-item-track {
+  height: 7px;
+  overflow: hidden;
+  border-radius: 99px;
+  background: var(--surface-2);
+}
+
+.spending-item-track span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: color-mix(in oklab, var(--warning) 72%, var(--accent));
+}
+
+.spending-item strong {
+  color: var(--fg);
+  font-family: var(--font-display);
+  font-size: 0.68rem;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
 }
 
 @media (max-width: 1100px) {
-  .budget-main-grid,
-  .budget-middle-grid {
+  .budget-lower-grid,
+  .debt-wide {
     grid-template-columns: 1fr;
+  }
+
+  .ledger-wide-grid {
+    grid-template-columns: 1fr;
+    gap: 13px 0;
+  }
+
+  .ledger-wide-grid .ledger-block + .ledger-block {
+    padding-top: 13px;
+    padding-left: 0;
+    border-top: 1px solid var(--border);
+    border-left: 0;
+  }
+}
+
+@media (max-width: 620px) {
+  .ledger-metrics {
+    grid-template-columns: 1fr;
+  }
+
+  .ledger-row {
+    margin-bottom: 6px;
   }
 }
 
@@ -3139,6 +3272,10 @@
   font-variant-numeric: tabular-nums;
 }
 
+.gdp-summary-row small {
+  font-size: 0.62rem;
+}
+
 @media (max-width: 820px) {
   .gdp-driver-layout {
     grid-template-columns: 1fr;
@@ -3156,6 +3293,18 @@
   grid-template-columns: minmax(0, 1fr) minmax(0, 1.15fr);
   gap: 14px;
   margin-bottom: 14px;
+}
+
+.commerce-history-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+@media (max-width: 820px) {
+  .commerce-history-grid {
+    grid-template-columns: 1fr;
+  }
 }
 
 .commerce-currency-hero {

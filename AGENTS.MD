@@ -25,8 +25,9 @@ countrystrike/
 │   │   ├── music.ts         # Generative soundtracks and lookahead scheduler
 │   │   ├── types.ts         # Central TypeScript interfaces, enums, domain types
 │   │   ├── constants.ts     # Game constants, resource definitions, unit profiles
-│   │   ├── engine.ts        # Turn advance loop, AI behaviors, price updates, GDP
-│   │   ├── selectors.ts     # Pure derived state: budget, military power, tax curves
+│   │   ├── engine.ts        # Turn advance loop, AI behaviors, price updates
+│   │   ├── economy.ts       # GDP composition, sector anchors, civil capacity, shocks
+│   │   ├── selectors.ts     # Pure derived state: budget, commerce, inflation, military power
 │   │   ├── events.ts        # Event registry, candidate matching, effect application
 │   │   ├── ministryEvents.ts# 600+ ministry events and sovereign bailout requests
 │   │   ├── worldgen.ts      # Seeded procedural world generation (Voronoi continents)
@@ -105,20 +106,20 @@ The game features over 600 handcrafted, thematic events located in `src/game/min
 - **Misc events**: the core deck includes grey-market formalisation, emigration, a regional infrastructure fund and a digital corridor, alongside the existing core and ministry events.
 - **Passive external approval**: once relations hit 100, external approval rises by 0.2–1.2 per turn depending on Foreign ministry capacity. Campaigns remain the faster route.
 
-### 3. GDP Growth Engine
+### 3. GDP Composition Engine
 
-- **Decomposed Drivers** (`gdpGrowthDrivers` in `selectors.ts`): base expansion, industrial scale (capped at +1.5%/turn), technology advances, military demand, resource production share (`production value / GDP × 0.03`), positive resource surplus, stock buffers, shortages/deficits, reserve depletion, fiscal balance, debt burden, treasury reserve, tax burden, corporate tax competitiveness (`(20 − corporate) × 0.0008`, capped ±1%/turn), corruption and trait/cabinet effects.
-- **Negative Pressure**:
-  - Debt-to-GDP above 60%: `−0.008` per 100 points; above 120%: an additional `−0.012` per 100 points.
-  - Zero treasury: `−0.005`/turn; treasury below 1% of GDP: `−0.002`/turn.
-  - Each resource in shortage or under four turns of stock cover: share of a `−0.009` penalty.
-  - Reserve depletion below 20 turns of runway: up to `−0.005`/turn.
-- **Positive Pressure**: resource production share, positive resource balances, global stock cover, funded treasury (>20% of GDP) and a positive fiscal balance.
-- **Immediate Action Growth**: Industrial upgrades, breakthrough discoveries (+0.8%), and military recruitment stimulate the economy and immediately increase GDP base value.
-- **Normalisation**: `updateCountryStats` clamps the final turn growth to `[-0.50, +0.50]`. Individual drivers stay small; the debt burden driver is capped at `-0.25`.
-- **Commerce drivers**: consumer availability/affordability, cost of living and inflation add `commerce`, `costOfLiving` and `inflation` drivers.
+- **Identity**: `stats.gdp = stats.gdpIndustry + stats.gdpCommerce + stats.gdpMilitary`. There is no autonomous base expansion and no random growth multiplier.
+- **Module**: `src/game/economy.ts` owns `computeGdp`, `gdpCapacityDrivers`, `initializeEconomyBase` and `applyGdpShock`. `Country.economyBase` stores the sector output and GDP anchors captured at world generation.
+- **Industry GDP**: baseline anchor × `(current resource production value / baseline production value)` × civil capacity. Extraction, refinement, advances, research and global resource prices move it.
+- **Commerce GDP**: baseline anchor × `(household final consumption + net consumer trade) / baseline commerce output` × civil capacity. Supply, demand, policy, imports and exports move it.
+- **Military GDP**: baseline anchor × `(Defense ministry budget + military upkeep) / baseline defense outlays`. Recruitment and budget changes move it; it is not scaled by civil capacity.
+- **Civil capacity**: `clamp(1 + Σ gdpCapacityDrivers, 0.35, 1.30)`; `computeGdp` normalizes it against the starting capacity. Drivers are **level effects**, not per-turn growth:
+  - Fiscal balance (`0.5 × clamp(net/GDP, −6%, +6%)`), debt burden above 60%/120% of GDP, treasury reserve, tax burden above 45.
+  - Corporate tax competitiveness (`(20 − corporate) × 0.002`, capped ±3%), consumer availability/affordability, cost of living, inflation above 4%, deflation below −1%, shortages, reserve depletion, resource surplus, stock buffers, corruption and traits/cabinet.
+- **Permanent shocks**: `applyGdpShock(pct)` scales the three GDP anchors and current components. Used by events (`gdpPct`), ministry upgrades (+0.3%), breakthroughs (+0.8%), recruitment, mergers and AI investment programmes.
+- **Charts**: `HistoryPoint` records `gdpIndustry`, `gdpCommerce`, `gdpMilitary`, `debtRate`, `fxFairRate` and `worldInflation`. Budget renders a stacked composition chart; Commerce renders currency/inflation history.
 - **Income tax and depression**: the depression target adds `(income tax − 20) × 0.18`, so income tax below 20% eases depression and above 20% deepens it.
-- The Budget page renders every driver, and the Methodology page documents the equations.
+- The Budget page renders every capacity driver and the Methodology page documents the equations.
 
 ### 4. Resource Market & Prices
 
@@ -139,12 +140,15 @@ The game features over 600 handcrafted, thematic events located in `src/game/min
   - Price pressure = `clamp((demand ÷ supply)^elasticity × (1 + 0.2 × import share), 0.4, 3)`.
   - Consumer price = `basePrice × pressure × (1 + policy/100)`; policy runs from −60% subsidy to +120% tax.
   - Fiscal balance = levies − subsidies. Consumer trade = export credit − import bill; households pay it, so it affects the current account and FX but not the state budget.
-  - The basket feeds GDP (`commerce`, `costOfLiving`, `inflation` drivers), approval, depression, HDI and Gini.
+  - The basket feeds commerce GDP, civil capacity, approval, depression, HDI and Gini.
 - **Actions**: `setCommercePolicy` changes one good per action and logs the decision.
-- **Currency tools**: the Commerce page has a two-country comparison (cross rate, inflation, PPP gap, strength edge) and a currency strength ranking. Strength = `100 − 1.6×inflation − 1.2×PPP gap − 0.4×depreciation`.
-- **Inflation**: `stats.inflation` is annualised percent per turn. `inflationTarget` combines monetised deficit, shortage share, basket pressure, demand-pull growth, FX pass-through, credibility and a stabilisation term above 8%.
-- **Currencies**: every country has a `CurrencyState` (`rate`, `fairRate`, `changePct`, `regime`). `updateCurrencies` drifts the PPP fair rate with the damped relative-inflation differential, then mean-reverts the market rate toward fair value with debt/approval/shortage risk premiums and a trade-flow push. Floating/managed/pegged regimes move at different speeds and caps.
-- **Save migration**: `normalizeGameState` fills `stats.inflation`, `stats.pppPerCapita`, `stats.averageRelations`, `stats.worldApproval`, `commercePolicy` and `currency` for older saves; `SAVE_VERSION` is 5.
+- **Currency tools**: the Commerce page has a two-country comparison (cross rate, inflation, PPP gap, strength edge), a currency strength ranking and historical charts for exchange rate, inflation, world inflation and the sovereign rate. Strength = `100 − 1.6×inflation − 1.2×PPP gap − 0.4×depreciation`.
+- **1:1 launch parity**: `makeCurrency` sets every currency to `rate = fairRate = 1` (local units per credit/$). Rates diverge afterwards through the PPP anchor and market convergence; old saves are reset to parity once on v6 migration.
+- **Inflation**: `stats.inflation` is annualised percent per turn. `inflationTarget` combines monetised deficit, primary surplus (deflationary), debt service (`debt × rate / GDP`), the signed sovereign rate, shortage/basket pressure, demand-pull growth, FX pass-through (appreciation is deflationary), deflation expectations, recession/depression drag, credibility and a stabilisation term above 8%. Actual inflation is clamped to `[−15, 80]`.
+- **Deflation**: a target below zero is reachable through surpluses, currency appreciation, negative sovereign rates, recession and depression. Deflation drags civil capacity and raises depression/approval pressure.
+- **Currencies**: every country has a `CurrencyState` (`rate`, `fairRate`, `changePct`, `regime`). `updateCurrencies` drifts the PPP fair rate with the damped relative-inflation differential, then mean-reverts the market rate toward fair value with debt/approval/shortage/sovereign-rate risk premiums and a trade-flow push. Floating/managed/pegged regimes move at different speeds and caps.
+- **Sovereign rate**: `setDebtRate` accepts `[−5, 20]`. Negative rates turn debt interest into carry income, lower inflation and reduce the lender limit. The engine emergency surcharge can raise the rate to at most 35.
+- **Save migration**: `normalizeGameState` fills `stats.inflation`, `stats.pppPerCapita`, `stats.averageRelations`, `stats.worldApproval`, `commercePolicy`, `currency` and the GDP anchors for older saves; `SAVE_VERSION` is 6.
 
 ### 6. Composite Score
 
@@ -160,7 +164,7 @@ The game features over 600 handcrafted, thematic events located in `src/game/min
 - **Industry cost**: `action base × (1 + 0.12 × extraction+refinement levels + 0.25 × advances) × category factor × industry budget factor`. Strategic resources use a 3.0× category factor.
 - **Cabinet cost**: `action base × (1 + 0.4 × (tier − 1))`, using `ministryActionCost`, `diplomaticMissionCost`, `approvalCampaignCost`, `mergerCost` and `warMobilizationCost` from `engine.ts`.
 - **Recurring ministry budgets** remain a share of GDP because they are policy rates, not one-off purchases.
-- **Corporate tax**: below 20% adds GDP growth, above 20% subtracts it (capped ±1%/turn).
+- **Corporate tax**: below 20% raises civil capacity, above 20% lowers it (capped ±3%).
 - **Income tax**: below 20% lowers the depression target, above 20% raises it.
 
 ### 8. Turn Briefing & Event Modal Architecture

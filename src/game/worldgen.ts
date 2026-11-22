@@ -53,13 +53,14 @@ import { shadeHex } from './color'
 import {
   averageRelationsForCountry,
   combinedModifiers,
-  computeCommerce,
+  computeBudget,
   computeMarket,
   gdpPerCapita,
   resourceFlows,
   resourceModifier,
   worldApprovalForCountry,
 } from './selectors'
+import { initializeEconomyBase } from './economy'
 
 /* ── Name helpers ──────────────────────────────────────────────────────── */
 
@@ -307,20 +308,18 @@ function makeCurrency(
   rng: RNG,
   countryName: string,
   countryCode: string,
-  gdpPerCapita: number,
   usedCodes: Set<string>,
 ): CurrencyState {
   const denomination = rng.pick(CURRENCY_DENOMINATIONS)
   const roll = rng.next()
   const regime = roll < 0.55 ? 'floating' : roll < 0.85 ? 'managed' : 'pegged'
-  const relative = 24_000 / Math.max(4_000, gdpPerCapita)
-  const rate = roundTo(clamp(relative * rng.float(0.45, 2.2), 0.15, 80), 3)
   return {
     code: makeCurrencyCode(rng, countryCode, usedCodes),
     name: `${countryName} ${denomination.name.toLowerCase()}`,
     symbol: denomination.symbol,
-    rate,
-    fairRate: rate,
+    // Every currency launches at 1:1 parity with the game credit ($).
+    rate: 1,
+    fairRate: 1,
     changePct: 0,
     regime,
   }
@@ -475,6 +474,9 @@ function generateCountry(
   const stats: CountryStats = {
     population,
     gdp,
+    gdpIndustry: 0,
+    gdpCommerce: 0,
+    gdpMilitary: 0,
     treasury: gdp * rng.float(0.035, 0.11) * settings.startingTreasury,
     debt: gdp * rng.float(0.25, 0.82) * settings.startingDebt,
     debtRate: roundTo(rng.float(3, 12), 1),
@@ -513,6 +515,15 @@ function generateCountry(
       color: mapData.color,
     },
     stats,
+    economyBase: {
+      industryOutput: 0,
+      commerceOutput: 0,
+      militaryOutput: 0,
+      industryGdp: 0,
+      commerceGdp: 0,
+      militaryGdp: 0,
+      capacity: 1,
+    },
     taxes: makeTaxes(rng),
     ministries: makeMinistries(rng) as Country['ministries'],
     resources: emptyResources(),
@@ -521,7 +532,7 @@ function generateCountry(
     externalApproval: 0,
     autoDeal: initAutoDeals(),
     commercePolicy: initCommercePolicy(),
-    currency: makeCurrency(rng, name, countryCode, gdpPerCapita, usedCurrencyCodes),
+    currency: makeCurrency(rng, name, countryCode, usedCurrencyCodes),
   }
 
   const modifiers = combinedModifiers(country)
@@ -814,9 +825,11 @@ export function generateWorld(settingsInput: GameSettings, seed = randomSeed()):
   }
 
   for (const country of countries) {
-    const commerce = computeCommerce(country, resourceFlows(country, [], prices))
+    const flows = resourceFlows(country, [], prices)
+    const budget = computeBudget(country, [], prices)
+    initializeEconomyBase(country, flows, budget, budget.commerce)
     country.stats.pppPerCapita = roundTo(
-      gdpPerCapita(country) / Math.max(0.2, commerce.basketIndex / 100),
+      gdpPerCapita(country) / Math.max(0.2, budget.commerce.basketIndex / 100),
       0,
     )
     country.stats.averageRelations = averageRelationsForCountry(country, countries)

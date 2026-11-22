@@ -38,6 +38,7 @@ import type {
   BudgetLevel,
 } from '../game/types'
 import { RNG, clamp, roundTo } from '../game/rng'
+import { applyGdpShock, initializeEconomyBase } from '../game/economy'
 import { generateWorld } from '../game/worldgen'
 import {
   advanceTurn,
@@ -152,7 +153,10 @@ function migrateTradeDeals(game: GameState): void {
   })
 }
 
-function normalizeGameState(game: GameState): GameState {
+function normalizeGameState(
+  game: GameState,
+  options: { resetCurrencyToParity?: boolean } = {},
+): GameState {
   game.settings = normalizeSettings(game.settings)
   migrateTradeDeals(game)
   for (const country of game.countries) {
@@ -160,6 +164,9 @@ function normalizeGameState(game: GameState): GameState {
       country.stats.population > 0 ? country.stats.gdp / country.stats.population : 10_000
     if (typeof country.stats.inflation !== 'number') {
       country.stats.inflation = 4
+    }
+    if (typeof country.stats.debtRate !== 'number') {
+      country.stats.debtRate = 5
     }
     if (typeof country.stats.pppPerCapita !== 'number') {
       country.stats.pppPerCapita = roundTo(perCapita, 0)
@@ -174,7 +181,6 @@ function normalizeGameState(game: GameState): GameState {
       )
     }
     if (!country.currency) {
-      const rate = roundTo(clamp(24_000 / Math.max(4_000, perCapita), 0.15, 80), 3)
       const seed =
         [...(country.code || country.name)].reduce(
           (total, character) => total + character.charCodeAt(0),
@@ -187,11 +193,15 @@ function normalizeGameState(game: GameState): GameState {
         code: country.code || 'CRD',
         name: `${country.name} ${denomination.name.toLowerCase()}`,
         symbol: denomination.symbol,
-        rate,
-        fairRate: rate,
+        rate: 1,
+        fairRate: 1,
         changePct: 0,
         regime,
       }
+    } else if (options.resetCurrencyToParity) {
+      country.currency.rate = 1
+      country.currency.fairRate = 1
+      country.currency.changePct = 0
     }
   }
   refreshWorldStanding(game)
@@ -211,6 +221,18 @@ function normalizeGameState(game: GameState): GameState {
       game.prices,
       game.settings.resourcePrices,
     )
+  }
+  for (const country of game.countries) {
+    if (
+      !country.economyBase ||
+      typeof country.stats.gdpIndustry !== 'number' ||
+      typeof country.stats.gdpCommerce !== 'number' ||
+      typeof country.stats.gdpMilitary !== 'number'
+    ) {
+      const flows = resourceFlows(country, game.deals, game.prices)
+      const budget = computeBudget(country, game.deals, game.prices)
+      initializeEconomyBase(country, flows, budget, budget.commerce)
+    }
   }
   return game
 }
@@ -424,13 +446,27 @@ export const useGame = create<GameStore>()(
           announce(set, error, 'negative')
           return
         }
-        const next = clamp(roundTo(value, 1), 1, 20)
+        const next = clamp(roundTo(value, 1), -5, 20)
         if (next === player.stats.debtRate) return
         player.stats.debtRate = next
         game.actionsLeft -= 1
-        pushLog(game, 'economy', `Debt rate adjusted to ${next}%.`, player)
+        pushLog(
+          game,
+          'economy',
+          next < 0
+            ? `Sovereign rate set to a negative ${next}%; lenders now pay a carry charge on state debt.`
+            : `Debt rate adjusted to ${next}%.`,
+          player,
+          next < 0 ? 'positive' : 'neutral',
+        )
         set({ game })
-        announce(set, `Debt rate adjusted to ${next}%.`, 'positive')
+        announce(
+          set,
+          next < 0
+            ? `Negative rate set: ${next}%. Debt service now earns carry income.`
+            : `Debt rate adjusted to ${next}%.`,
+          'positive',
+        )
       },
 
       adjustDebt: (delta) => {
@@ -616,7 +652,7 @@ export const useGame = create<GameStore>()(
         }
         min.level = currentLevel + 1
         min.head.skill = clamp(min.head.skill + 6, 0, 100)
-        player.stats.gdp = Math.max(100, roundTo(player.stats.gdp * 1.003, 1))
+        applyGdpShock(player, 0.003)
         player.stats.treasury -= cost
         game.actionsLeft -= 1
         pushLog(
@@ -760,7 +796,7 @@ export const useGame = create<GameStore>()(
             check.hasAllAdvancements || (resource.advances ?? 0) >= 5 || allAdvancementsUnlocked
 
           const awardAdvancement = () => {
-            player.stats.gdp = Math.max(100, roundTo(player.stats.gdp * 1.008, 1))
+            applyGdpShock(player, 0.008)
             outcomeLines.push('Breakthrough advancement: National GDP expanded by +0.8%!')
             if (resource.advances < 5) {
               resource.advances += 1
@@ -1225,10 +1261,7 @@ export const useGame = create<GameStore>()(
           )
         }
         player.military[unitId] += qty
-        player.stats.gdp = Math.max(
-          100,
-          roundTo(player.stats.gdp * (1 + 0.0003 * Math.min(25, qty)), 1),
-        )
+        applyGdpShock(player, 0.0003 * Math.min(25, qty))
         game.actionsLeft -= 1
         pushLog(
           game,
@@ -1533,7 +1566,7 @@ export const useGame = create<GameStore>()(
         player.stats.treasury += partner.stats.treasury * 0.4
         player.stats.debt += partner.stats.debt * 0.4
         player.stats.population += partner.stats.population
-        player.stats.gdp += partner.stats.gdp * 0.65
+        applyGdpShock(player, (partner.stats.gdp * 0.65) / Math.max(1, player.stats.gdp))
         player.stats.approval = clamp(player.stats.approval + 1, 0, 100)
         player.stats.corruption = clamp(player.stats.corruption + 2, 0, 100)
         transferResources(partner, player, 0.25)
@@ -1741,9 +1774,11 @@ export const useGame = create<GameStore>()(
       name: SAVE_KEY,
       version: SAVE_VERSION,
       partialize: (state) => ({ game: state.game, page: state.page }),
-      migrate: (persistedState: unknown) => {
+      migrate: (persistedState: unknown, version: number) => {
         const persisted = persistedState as { game?: GameState | null; page?: PageId }
-        if (persisted.game) normalizeGameState(persisted.game)
+        if (persisted.game) {
+          normalizeGameState(persisted.game, { resetCurrencyToParity: version < 6 })
+        }
         return { game: persisted.game ?? null, page: persisted.page ?? 'map' }
       },
     },

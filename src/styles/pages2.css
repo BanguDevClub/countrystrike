@@ -646,6 +646,27 @@
   min-width: 0;
 }
 
+/* Results first, history below: the table is the primary ranking surface. */
+.ranking-page > .page-header {
+  order: 0;
+}
+
+.ranking-page > .stat-grid {
+  order: 1;
+}
+
+.ranking-page > .ranking-table-card {
+  order: 2;
+}
+
+.ranking-page > .ranking-history-card {
+  order: 3;
+}
+
+.ranking-page > .ranking-methodology-card {
+  order: 4;
+}
+
 .ranking-filters {
   display: flex;
   align-items: center;
