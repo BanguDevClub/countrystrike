@@ -21,6 +21,8 @@
 countrystrike/
 ├── src/
 │   ├── game/                # Pure simulation engine and domain models
+│   │   ├── audio.ts         # Procedural sound effects and master output bus
+│   │   ├── music.ts         # Generative soundtracks and lookahead scheduler
 │   │   ├── types.ts         # Central TypeScript interfaces, enums, domain types
 │   │   ├── constants.ts     # Game constants, resource definitions, unit profiles
 │   │   ├── engine.ts        # Turn advance loop, AI behaviors, price updates, GDP
@@ -32,7 +34,7 @@ countrystrike/
 │   │   └── rng.ts           # Mulberry32 seeded deterministic PRNG
 │   ├── state/
 │   │   ├── gameStore.ts     # Primary game store: turn flow, actions, modal router
-│   │   └── prefsStore.ts    # User settings: theme, audio, sound volume
+│   │   └── prefsStore.ts    # User settings: theme, audio, soundtrack choice
 │   ├── pages/               # Top-level screen views
 │   │   ├── StartMenu.tsx    # World setup: counts, difficulty, economy modifiers
 │   │   ├── CountryPicker.tsx # Post-generation nation selection and stat comparison

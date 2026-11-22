@@ -152,7 +152,8 @@ graph TD
 src/
 ├── components/       Shared UI, layout, icon registry, flag renderer, modals
 ├── game/
-│   ├── audio.ts      Procedural sound effects and ambient music
+│   ├── audio.ts      Procedural sound effects and master output bus
+│   ├── music.ts      Three generative soundtracks and step scheduler
 │   ├── color.ts      Hex mixing and shading for generated map palettes
 │   ├── constants.ts  Resources, units, governments, ministries, traits, scoring
 │   ├── engine.ts     Turn settlement, AI, history, event scheduling
@@ -227,7 +228,7 @@ households pay for consumer goods, while the treasury only collects levies or pa
 The game state, current page and visual preferences are stored locally:
 
 - `countrystrike-save` — the world, turn history and current screen
-- `countrystrike-prefs` — theme, sound effects and music preference
+- `countrystrike-prefs` — theme, sound effects, music and soundtrack choice
 
 Starting a new world replaces the save after an explicit confirmation.
 

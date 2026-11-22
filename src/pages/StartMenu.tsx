@@ -448,7 +448,7 @@ export function StartMenu() {
             checked={music}
             onChange={(next) => setMusic(next)}
             label="Background music"
-            description="A quiet generative pulse for the situation room."
+            description="Three scores: bright, industrial or imperial. Switch them from the header."
           />
         </div>
 

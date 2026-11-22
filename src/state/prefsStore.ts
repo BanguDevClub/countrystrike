@@ -2,15 +2,24 @@ import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 import { PREFS_KEY } from '../game/constants'
 import type { ThemeId } from '../game/types'
-import { playSfx, setMusicEnabled, setSoundEnabled, unlockAudio } from '../game/audio'
+import { isMusicTrackId, type MusicTrackId } from '../game/music'
+import {
+  playSfx,
+  setMusicEnabled,
+  setMusicTrack as applyMusicTrack,
+  setSoundEnabled,
+  unlockAudio,
+} from '../game/audio'
 
 interface PrefsStore {
   theme: ThemeId
   sound: boolean
   music: boolean
+  musicTrack: MusicTrackId
   setTheme: (theme: ThemeId) => void
   setSound: (sound: boolean) => void
   setMusic: (music: boolean) => void
+  setMusicTrack: (track: MusicTrackId) => void
 }
 
 function applyTheme(theme: ThemeId): void {
@@ -23,6 +32,7 @@ export const usePrefs = create<PrefsStore>()(
       theme: 'dark',
       sound: true,
       music: false,
+      musicTrack: 'happy',
 
       setTheme: (theme) => {
         applyTheme(theme)
@@ -40,6 +50,11 @@ export const usePrefs = create<PrefsStore>()(
         setMusicEnabled(music)
         set({ music })
       },
+
+      setMusicTrack: (track) => {
+        applyMusicTrack(track)
+        set({ musicTrack: track })
+      },
     }),
     {
       name: PREFS_KEY,
@@ -47,6 +62,7 @@ export const usePrefs = create<PrefsStore>()(
         if (state) {
           applyTheme(state.theme)
           setSoundEnabled(state.sound)
+          if (isMusicTrackId(state.musicTrack)) applyMusicTrack(state.musicTrack)
           setMusicEnabled(state.music)
         }
       },
@@ -56,6 +72,7 @@ export const usePrefs = create<PrefsStore>()(
 
 export function syncPrefsToAudio(): void {
   const state = usePrefs.getState()
+  if (isMusicTrackId(state.musicTrack)) applyMusicTrack(state.musicTrack)
   setSoundEnabled(state.sound)
   setMusicEnabled(state.music)
 }

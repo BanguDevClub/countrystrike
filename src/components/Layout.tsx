@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { GITHUB_URL, PAGES, THEMES } from '../game/constants'
+import { MUSIC_TRACKS, type MusicTrackId } from '../game/music'
 import type { PageId } from '../game/types'
 import { useGame } from '../state/gameStore'
 import { usePrefs } from '../state/prefsStore'
@@ -142,6 +143,99 @@ function ThemeMenu() {
   )
 }
 
+const MUSIC_TRACK_ICONS: Record<MusicTrackId, string> = {
+  happy: 'Sparkles',
+  industrial: 'Factory',
+  dark: 'Crown',
+}
+
+function MusicMenu() {
+  const [open, setOpen] = useState(false)
+  const ref = useRef<HTMLDivElement>(null)
+  const { music, musicTrack, setMusic, setMusicTrack } = usePrefs()
+
+  useEffect(() => {
+    if (!open) return
+    const handlePointer = (event: PointerEvent) => {
+      if (ref.current && !ref.current.contains(event.target as Node)) setOpen(false)
+    }
+    const handleKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setOpen(false)
+    }
+    document.addEventListener('pointerdown', handlePointer)
+    document.addEventListener('keydown', handleKey)
+    return () => {
+      document.removeEventListener('pointerdown', handlePointer)
+      document.removeEventListener('keydown', handleKey)
+    }
+  }, [open])
+
+  const current = MUSIC_TRACKS.find((entry) => entry.id === musicTrack) ?? MUSIC_TRACKS[0]!
+
+  return (
+    <div className="theme-menu" ref={ref}>
+      <button
+        type="button"
+        className={`icon-btn ${music ? 'is-active-soft' : ''}`}
+        onClick={() => setOpen((value) => !value)}
+        aria-label="Choose soundtrack"
+        aria-expanded={open}
+        title={music ? `Soundtrack: ${current.name}` : 'Soundtrack off'}
+      >
+        <Icon name="AudioLines" size={17} />
+      </button>
+      {open && (
+        <div className="menu-popover music-popover">
+          <div className="menu-heading">
+            <span>Soundtrack</span>
+            <small>{music ? current.name : 'Off'}</small>
+          </div>
+          <button
+            type="button"
+            className={`theme-option ${music ? '' : 'is-active'}`}
+            onClick={() => {
+              playSfx('click')
+              setMusic(false)
+              setOpen(false)
+            }}
+          >
+            <span className="music-option-icon">
+              <Icon name="VolumeX" size={15} />
+            </span>
+            <span>
+              <strong>Off</strong>
+              <small>No background music</small>
+            </span>
+            {!music && <Icon name="Check" size={14} />}
+          </button>
+          {MUSIC_TRACKS.map((entry) => (
+            <button
+              key={entry.id}
+              type="button"
+              className={`theme-option ${music && entry.id === musicTrack ? 'is-active' : ''}`}
+              onClick={() => {
+                playSfx('click')
+                setMusicTrack(entry.id)
+                setMusic(true)
+                setOpen(false)
+              }}
+            >
+              <span className="music-option-icon">
+                <Icon name={MUSIC_TRACK_ICONS[entry.id]} size={15} />
+              </span>
+              <span>
+                <strong>{entry.name}</strong>
+                <small>{entry.tagline}</small>
+              </span>
+              {music && entry.id === musicTrack && <Icon name="Check" size={14} />}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
 export function SiteHeader() {
   const game = useGame((state) => state.game)
   const page = useGame((state) => state.page)
@@ -151,7 +245,7 @@ export function SiteHeader() {
   const openNewGame = useGame((state) => state.openNewGame)
   const player = useGame(selectPlayer)
   const openTurnBriefing = useGame((state) => state.openTurnBriefing)
-  const { sound, music, setSound, setMusic } = usePrefs()
+  const { sound, setSound } = usePrefs()
 
   const endTurnDisabled = Boolean(
     !game ||
@@ -244,16 +338,7 @@ export function SiteHeader() {
           >
             <Icon name={sound ? 'Volume2' : 'VolumeX'} size={17} />
           </button>
-          <button
-            type="button"
-            className={`icon-btn ${music ? 'is-active-soft' : ''}`}
-            onClick={() => setMusic(!music)}
-            aria-label={music ? 'Disable background music' : 'Enable background music'}
-            aria-pressed={music}
-            title={music ? 'Music on' : 'Music off'}
-          >
-            <Icon name="AudioLines" size={17} />
-          </button>
+          <MusicMenu />
           <ThemeMenu />
           {game && (
             <button
